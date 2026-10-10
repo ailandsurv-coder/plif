@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Evoluția stației totale</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/anim-ui.js"></script>
+<style>
+  #sv{position:absolute;left:0;top:92px;width:64%;height:calc(100vh - 250px)}
+  #card{right:20px;top:100px;width:calc(36% - 30px);bottom:160px;overflow:hidden}
+  #card .yr{font-size:1.05em;color:var(--cyan);font-weight:700;letter-spacing:1px}
+  #card .tt{font-size:1.55em;font-weight:700;margin:2px 0 10px;line-height:1.15}
+  #card .lb2{color:var(--gold);font-weight:700;margin-top:10px}
+  #card p{margin:4px 0}
+  .a-caption{display:none}
+  #tl{position:absolute;left:24px;width:calc(64% - 40px);bottom:90px;display:flex;gap:6px}
+  #tl button{flex:1;background:var(--panel);color:var(--muted);border:1px solid var(--line);border-radius:8px;padding:6px 4px;font-size:clamp(10px,.8vw,14px);cursor:pointer;font-family:inherit;line-height:1.2}
+  #tl button.on{background:var(--cyan);color:#04111f;font-weight:700;border-color:var(--cyan)}
+  #tl button.done{color:var(--text)}
+  @media (max-width:900px){#card{display:none}#sv,#tl{width:auto;right:16px}}
+</style>
+</head><body>
+<div class="a-title">De la teodolit la stația totală robotizată<small>Cum s-a adăugat, pas cu pas, fiecare componentă: lunetă și cercuri → distanțometru → electronică → memorie și calculator → motoare → laser → scanare</small></div>
+<svg id="sv" viewBox="0 0 1000 680"></svg>
+<div class="a-panel" id="card"></div>
+<div id="tl"></div>
+<script>
+(function(){
+  const {seg, lerp, ease} = AnimUI, sv = document.getElementById('sv');
+  const E = [
+    {y:'sec. XIX – anii 1970', t:'Teodolitul optic-mecanic', ex:'Wild T2, Wild T3, Zeiss Theo 010 / 020',
+     nou:'Luneta, cercurile gradate din sticlă, nivelele și ambaza — <b>teodolitul</b>, nucleul oricărei stații totale de azi.',
+     cum:'Unghiurile orizontale și verticale se citesc la microscop, pe cercuri gradate, cu precizie de ordinul secundelor. Distanțele se măsurau separat: cu panglica sau optic (stadimetric). Totul se nota în carnetul de teren.'},
+    {y:'anii 1950 – 1970', t:'Distanțometrul electro-optic (EDM)', ex:'Geodimeter (AGA, 1953); distomate cu infraroșu montate pe lunetă (Wild DI 10, 1968)',
+     nou:'<b>Distanțometrul</b> (EDM — Electronic Distance Measurement): un aparat separat, fixat pe lunetă.',
+     cum:'Emite un fascicul de lumină modulată (infraroșu) spre o prismă; din <b>timpul de propagare</b> sau din <b>diferența de fază</b> dintre undă emisă și reflectată rezultă distanța: D = c · Δt / 2. Precizie: câțiva milimetri plus câțiva mm/km.'},
+    {y:'anii 1970 – 1980', t:'Tahimetrul electronic', ex:'Zeiss Elta 2 (1968), HP 3820A (1971), apoi toți marii producători',
+     nou:'Citirea <b>electronică</b> a cercurilor (codificatoare) și <b>afișajul digital</b>; distanțometrul devine coaxial cu luneta.',
+     cum:'Unghiurile și distanța se afișează direct, fără microscop și fără calcule de mână. Un compensator electronic corectează automat înclinarea axei verticale.'},
+    {y:'anii 1980 – 1990', t:'Memoria și calculatorul integrat', ex:'carnete electronice (Wild GRE), apoi memorie internă și carduri',
+     nou:'<b>Computerul integrat</b>: înregistrarea automată a măsurătorilor și programe de calcul în teren.',
+     cum:'Stația calculează direct coordonatele punctelor (X, Y, Z), stația liberă (retrointersecția), trasarea, suprafețele. Datele se exportă pentru prelucrare în AutoCAD sau în soluții GIS.'},
+    {y:'anii 1990', t:'Servomotoare și recunoașterea automată a țintei (ATR)', ex:'Geodimeter System 4000 (1990) — prima stație robotizată; Leica TCA (ATR)',
+     nou:'<b>Motoare</b> pe ambele axe și <b>ATR</b>: stația găsește singură prisma și o urmărește (lock).',
+     cum:'Operatorul stă la prismă, cu controlerul în mână — <b>un singur om</b> face ridicarea. Vizarea automată elimină erorile de punctare ale operatorului.'},
+    {y:'sfârșitul anilor 1990', t:'Măsurarea fără reflector', ex:'distanțometre cu laser vizibil (de ex. Leica TCR, 1998)',
+     nou:'<b>Reflectorless</b>: distanța se măsoară direct pe suprafața vizată, fără prismă.',
+     cum:'Un laser vizibil (punct roșu) permite măsurarea punctelor inaccesibile: fațade, poduri, taluzuri, canale pline cu apă. Raza de lucru a crescut de la câteva sute de metri la peste un kilometru.'},
+    {y:'anii 2010 – azi', t:'Stația robotizată cu cameră și scanare', ex:'stații cu scanare (Leica MS60, Trimble SX10), legare cu GNSS (SmartStation), controlere cu tabletă',
+     nou:'<b>Camere</b> integrate, <b>scanare</b> (mii de puncte pe secundă), legătură cu <b>GNSS</b> și transfer în cloud.',
+     cum:'Stația totală devine un senzor complet: imagine, nor de puncte și coordonate, toate în același sistem. Aceleași trei componente de bază — teodolit, EDM, computer — rămân în centrul instrumentului.'}];
+  const D = 8, N = E.length;
+
+  // ---------- desen
+  const PX = 330, PY = 345;        // axa secundară (a lunetei)
+  function instrument(k, ang, f){
+    const modern = k >= 2, body = modern ? '#e8edf4' : '#5f7d6b', trim = modern ? '#2c3a52' : '#2d3d33', acc = k >= 4 ? '#ffc940' : (modern ? '#3fd0ff' : '#c9a46a');
+    let h = '';
+    // trepied
+    h += `<path d="M ${PX-12} 520 L ${PX-150} 690 M ${PX} 520 L ${PX} 690 M ${PX+12} 520 L ${PX+150} 690" stroke="#c9a46a" stroke-width="12" stroke-linecap="round"/>
+      <rect x="${PX-70}" y="512" width="140" height="16" rx="4" fill="#8a6a3a"/>`;
+    // ambaza (cu 3 suruburi de calare)
+    h += `<path d="M ${PX-62} 512 L ${PX-50} 488 L ${PX+50} 488 L ${PX+62} 512 Z" fill="${trim}"/>
+      ${[-44,0,44].map(dx => `<rect x="${PX+dx-7}" y="490" width="14" height="22" rx="3" fill="#9aa6b8"/>`).join('')}`;
+    // ambaza -> alidada (cercul orizontal)
+    h += `<rect x="${PX-78}" y="452" width="156" height="36" rx="8" fill="${body}" stroke="${trim}" stroke-width="2"/>
+      <ellipse cx="${PX}" cy="470" rx="70" ry="9" fill="none" stroke="${acc}" stroke-width="2" stroke-dasharray="3 3"/>`;
+    // montanți
+    h += `<path d="M ${PX-60} 452 L ${PX-46} 300 L ${PX+46} 300 L ${PX+60} 452 Z" fill="${body}" stroke="${trim}" stroke-width="2"/>`;
+    // manere (modern)
+    if(modern) h += `<path d="M ${PX-38} 300 L ${PX-38} 262 Q ${PX} 246 ${PX+38} 262 L ${PX+38} 300" fill="none" stroke="${trim}" stroke-width="9" stroke-linecap="round"/>`;
+    // cercul vertical
+    h += `<circle cx="${PX}" cy="${PY}" r="40" fill="${modern ? '#cdd6e2' : '#6f8f7b'}" stroke="${acc}" stroke-width="2.5"/>`;
+    // nivela (clasic) / afisaj + tastatura (electronic)
+    if(!modern) h += `<rect x="${PX-30}" y="436" width="60" height="12" rx="6" fill="#bfe9b0" stroke="#2d3d33"/><circle cx="${PX+4}" cy="442" r="4" fill="#fff"/>`;
+    if(k >= 2){ h += `<rect x="${PX-108}" y="396" width="52" height="70" rx="5" fill="#1b2840" stroke="#9fb4d0"/>
+       <rect x="${PX-102}" y="402" width="40" height="22" fill="#9ee6a8"/>${[0,1,2].map(r => [0,1,2].map(c => `<rect x="${PX-102+c*14}" y="${430+r*11}" width="11" height="8" fill="#5c6f8e"/>`).join('')).join('')}`; }
+    // motoare (servo)
+    if(k >= 4) h += `<g fill="${acc}" opacity=".95">${[[PX+30,420],[PX,PY]].map(([x,y],i) => `<circle cx="${x}" cy="${y}" r="${i ? 14 : 11}" fill="none" stroke="${acc}" stroke-width="5" stroke-dasharray="5 4"/>`).join('')}</g>`;
+    // luneta (rotita cu unghiul ang)
+    const len = 190, w = modern ? 46 : 32;
+    h += `<g transform="rotate(${-ang} ${PX} ${PY})">
+      <rect x="${PX-70}" y="${PY-w/2}" width="${len}" height="${w}" rx="${w/2.5}" fill="${modern ? '#2c3a52' : '#3f5547'}" stroke="${trim}" stroke-width="2"/>
+      <rect x="${PX+len-80}" y="${PY-w/2-4}" width="12" height="${w+8}" rx="3" fill="${acc}"/>
+      <circle cx="${PX+len-70}" cy="${PY}" r="${w/2-6}" fill="#0b1426" stroke="#9fb4d0" stroke-width="2"/>`;
+    if(k === 1) h += `<rect x="${PX-30}" y="${PY-w/2-46}" width="120" height="42" rx="7" fill="#c9343f" stroke="#7a1c24" stroke-width="2"/><circle cx="${PX+86}" cy="${PY-w/2-25}" r="11" fill="#300" stroke="#f99"/><text x="${PX+20}" y="${PY-w/2-19}" fill="#fff" font-size="14" text-anchor="middle">EDM</text>`;
+    if(k >= 6) h += `<rect x="${PX+30}" y="${PY-w/2-16}" width="34" height="14" rx="3" fill="#111"/><circle cx="${PX+47}" cy="${PY-w/2-9}" r="5" fill="#3fd0ff"/>`;
+    h += `</g>`;
+    return h;
+  }
+  // tinta (in functie de epoca) — la dreapta
+  function target(k, f, ang){
+    const TX = 860; let h = '', ty = PY - Math.tan(ang*Math.PI/180)*(TX - PX);
+    if(k === 0){ // mira / jalon
+      h += `<rect x="${TX-9}" y="200" width="18" height="320" fill="#fff"/>${Array.from({length:16}, (_,i) => `<rect x="${TX-9}" y="${200+i*20}" width="18" height="10" fill="${i%2 ? '#d33' : '#111'}"/>`).join('')}`;
+    } else if(k <= 4){ // prisma pe baston
+      const px = k === 4 ? TX + 60*Math.sin(f*Math.PI*2) : TX, py = 300;
+      h += `<line x1="${px}" y1="${py}" x2="${px}" y2="560" stroke="#ddd" stroke-width="7"/><line x1="${px}" y1="430" x2="${px}" y2="560" stroke="#d33" stroke-width="7" stroke-dasharray="14 14"/>
+        <circle cx="${px}" cy="${py}" r="26" fill="#d9a21b" stroke="#7a5a10" stroke-width="3"/><circle cx="${px}" cy="${py}" r="15" fill="#9fd8ff" stroke="#fff"/>`;
+      if(k === 4) h += `<g transform="translate(${px+18},${py+120})"><rect width="42" height="58" rx="6" fill="#1b2840" stroke="#3fd0ff"/><rect x="5" y="6" width="32" height="26" fill="#3fd0ff" opacity=".7"/></g><text x="${px+40}" y="${py+200}" fill="#b4c0d4" font-size="16" text-anchor="middle">operatorul, cu controlerul</text>`;
+      return {h, tx:px, ty:py};
+    } else { // perete / cladire
+      h += `<rect x="${TX-40}" y="120" width="180" height="420" fill="#3a4258" stroke="#6b7690"/>${Array.from({length:6}, (_,r) => Array.from({length:3}, (_,c) => `<rect x="${TX-24+c*52}" y="${140+r*64}" width="30" height="40" fill="#1b2335"/>`).join('')).join('')}`;
+      return {h, tx:TX-40, ty:260};
+    }
+    return {h, tx:TX, ty:Math.max(210, Math.min(500, ty))};
+  }
+  function scene(k, f){
+    const ang = k === 4 ? 4*Math.sin(f*Math.PI*2) : (k === 6 ? 6 - 12*f : 2.5);
+    let h = `<defs><radialGradient id="gl"><stop offset="0" stop-color="#ff3030" stop-opacity="1"/><stop offset="1" stop-color="#ff3030" stop-opacity="0"/></radialGradient></defs>`;
+    h += `<rect x="0" y="560" width="1000" height="120" fill="#13202f"/><line x1="0" y1="560" x2="1000" y2="560" stroke="#2f4566"/>`;
+    const T = target(k, f, ang); h += T.h;
+    h += instrument(k, ang, f);
+    // raza / masurarea
+    const ex = PX + 120*Math.cos(ang*Math.PI/180), ey = PY - 120*Math.sin(ang*Math.PI/180);
+    if(k === 0){ // privire prin luneta + citire la microscop
+      h += `<line x1="${ex}" y1="${ey}" x2="${T.tx}" y2="${ey}" stroke="#ffffff" stroke-width="1.5" stroke-dasharray="6 6" opacity=".6"/>
+        <g transform="translate(70,120)"><circle r="78" cx="78" cy="78" fill="#0b1426" stroke="#c9a46a" stroke-width="4"/>
+        <text x="78" y="40" fill="#c9a46a" font-size="15" text-anchor="middle">microscop de citire</text>
+        ${Array.from({length:9}, (_,i) => `<line x1="${30+i*12}" y1="70" x2="${30+i*12}" y2="${i%5===0 ? 94 : 84}" stroke="#ffe9b0" stroke-width="2"/>`).join('')}
+        <text x="78" y="124" fill="#ffe9b0" font-size="22" text-anchor="middle" font-family="Consolas">Hz 78ᵍ24ᶜ</text></g>
+        <g transform="translate(70,330)" opacity="${seg(f,0.4,0.6)}"><rect width="170" height="110" rx="6" fill="#f3ead2"/><text x="12" y="28" font-size="15" fill="#333" font-family="Consolas">Pct  Hz      V</text>
+        <text x="12" y="54" font-size="15" fill="#225" font-family="Consolas">12  78.24  99.31</text><text x="12" y="78" font-size="15" fill="#225" font-family="Consolas">13 104.87 101.06</text><text x="12" y="100" font-size="13" fill="#666">carnet de teren</text></g>`;
+    } else if(k <= 4){ // impuls EDM dus-intors
+      const p = (f*3) % 1, out = p < 0.5, q = out ? p*2 : 2 - p*2, bx = lerp(ex, T.tx, q), by = lerp(ey, T.ty, q);
+      h += `<line x1="${ex}" y1="${ey}" x2="${T.tx}" y2="${T.ty}" stroke="${k === 4 ? '#ffc940' : '#ff5a5a'}" stroke-width="2" opacity=".55"/>
+        <circle cx="${bx}" cy="${by}" r="9" fill="${out ? '#ff5a5a' : '#3fd0ff'}"/><text x="${(ex+T.tx)/2}" y="${(ey+T.ty)/2 - 16}" fill="#fff" font-size="20" text-anchor="middle">D = c · Δt / 2</text>`;
+      if(k === 4) h += `<text x="${(ex+T.tx)/2}" y="${(ey+T.ty)/2 + 34}" fill="#ffc940" font-size="18" text-anchor="middle">ATR: prisma este urmărită automat (lock)</text>`;
+    } else if(k === 5){
+      h += `<line x1="${ex}" y1="${ey}" x2="${T.tx}" y2="${T.ty + 30*Math.sin(f*6)}" stroke="#ff3030" stroke-width="2.5"/><circle cx="${T.tx}" cy="${T.ty + 30*Math.sin(f*6)}" r="18" fill="url(#gl)"/>
+        <text x="${T.tx - 20}" y="${T.ty - 40}" fill="#ff8080" font-size="18" text-anchor="end">fără prismă</text>`;
+    } else {
+      // scanare: puncte pe fatada
+      const n = Math.floor(f*420);
+      for(let i=0;i<n;i++){ const r = Math.floor(i/30), c = i%30, x = 820 + c*6, y = 130 + r*28 + (c%2)*3; h += `<circle cx="${x}" cy="${y}" r="2.6" fill="${['#3fd0ff','#5be39a','#ffc940'][r%3]}"/>`; }
+      const i = n % 30, r = Math.floor(n/30);
+      h += `<line x1="${ex}" y1="${ey}" x2="${820 + i*6}" y2="${130 + r*28}" stroke="#ff3030" stroke-width="1.6" opacity=".8"/>`;
+    }
+    // afisaj (electronic): citiri
+    if(k >= 2 && k <= 6){
+      const hz = (78.2431 + (k === 4 ? 4*Math.sin(f*Math.PI*2) : 0)).toFixed(4), v = (100 - ang/0.9).toFixed(4), sd = k >= 5 ? (148.326 + 2*Math.sin(f*6)).toFixed(3) : '153.428';
+      h += `<g transform="translate(40,120)"><rect width="250" height="${k >= 3 ? 190 : 110}" rx="10" fill="#0d1a2c" stroke="#3fd0ff"/>
+        <text x="16" y="34" fill="#9ee6a8" font-size="20" font-family="Consolas">Hz  ${hz}ᵍ</text><text x="16" y="62" fill="#9ee6a8" font-size="20" font-family="Consolas">V   ${v}ᵍ</text><text x="16" y="90" fill="#9ee6a8" font-size="20" font-family="Consolas">SD  ${sd} m</text>
+        ${k >= 3 ? `<line x1="10" y1="104" x2="240" y2="104" stroke="#2f4566"/><text x="16" y="132" fill="#ffc940" font-size="19" font-family="Consolas">X  330 284.94</text><text x="16" y="158" fill="#ffc940" font-size="19" font-family="Consolas">Y  584 906.71</text><text x="16" y="182" fill="#ffc940" font-size="19" font-family="Consolas">Z      84.61</text>` : ''}</g>`;
+      if(k === 3) h += `<g transform="translate(300,140)" opacity="${seg(f,0.2,0.4)}"><rect width="64" height="44" rx="5" fill="#ffc940"/><text x="32" y="28" font-size="14" text-anchor="middle" fill="#04111f" font-weight="700">MEM</text></g>
+        <path d="M 292 165 L 300 165" stroke="#ffc940" stroke-width="3"/>`;
+    }
+    // etichete componente (slide-ul 4)
+    const lab = (x, y, x2, y2, t, c) => `<line x1="${x}" y1="${y}" x2="${x2}" y2="${y2}" stroke="${c}" stroke-width="1.5"/><circle cx="${x}" cy="${y}" r="4" fill="${c}"/><text x="${x2 + (x2 > x ? 6 : -6)}" y="${y2 + 6}" fill="${c}" font-size="18" font-weight="700" text-anchor="${x2 > x ? 'start' : 'end'}">${t}</text>`;
+    const la = seg(f, 0.05, 0.2);
+    h += `<g opacity="${la}">`;
+    h += lab(PX - 50, 470, 140, 600, 'cerc orizontal', '#c9a46a') + lab(PX, PY + 40, 150, 520, 'cerc vertical', '#c9a46a') + lab(PX + 40, 505, 520, 620, 'ambază', '#9aa6b8');
+    if(k === 1) h += lab(PX + 30, PY - 60, 520, 210, 'EDM atașat', '#ff8080');
+    if(k >= 2) h += lab(PX - 82, 420, 150, 470, 'afișaj + tastatură', '#9ee6a8');
+    if(k >= 4) h += lab(PX + 30, 420, 560, 470, 'servomotoare', '#ffc940');
+    if(k >= 6) h += lab(PX + 47, PY - 30, 560, 240, 'cameră', '#3fd0ff');
+    return h + '</g>';
+  }
+
+  // ---------- panou si cronologie
+  const card = document.getElementById('card'), tl = document.getElementById('tl');
+  E.forEach((e,i) => { const b = document.createElement('button'); b.innerHTML = `<b>${i+1}</b> · ${e.y}`; b.onclick = () => clk.seek(i*D + 0.01); tl.appendChild(b); });
+  let lastK = -1;
+  function showCard(k){ const e = E[k];
+    card.innerHTML = `<div class="yr">${e.y}</div><div class="tt">${e.t}</div><p>${e.nou}</p><div class="lb2">Cum funcționează</div><p>${e.cum}</p><div class="lb2">Exemple</div><p style="color:var(--muted)">${e.ex}</p>`;
+    [...tl.children].forEach((b,j) => { b.classList.toggle('on', j === k); b.classList.toggle('done', j < k); }); }
+  const clk = AnimUI.init({duration:N*D, loop:true, phases:E.map((e,i) => ({t:i*D, text:`<b>${i+1}. ${e.t}</b> — ${e.y}`}))});
+  (function frame(){
+    const t = clk.update(), k = Math.min(N-1, Math.floor(t/D)), f = (t - k*D)/D;
+    if(k !== lastK){ lastK = k; showCard(k); }
+    sv.innerHTML = scene(k, f);
+    requestAnimationFrame(frame);
+  })();
+})();
+</script>
+</body></html>

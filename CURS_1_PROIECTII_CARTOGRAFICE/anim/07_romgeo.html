@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RomGEO — transformarea coordonatelor</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/world-data.js"></script><script src="../lib/anim-ui.js"></script>
+<style>
+  #win{position:absolute;left:24px;top:100px;width:calc(62% - 30px);bottom:150px;background:#fff;color:#111;border-radius:10px;overflow:hidden;
+    box-shadow:0 10px 40px rgba(0,0,0,.6);font-family:Arial,Helvetica,sans-serif;display:flex;flex-direction:column}
+  .bar{background:#dfe3ea;padding:7px 10px;display:flex;gap:8px;align-items:center;font-size:13px;color:#333}
+  .bar i{width:11px;height:11px;border-radius:50%;display:inline-block}
+  .url{flex:1;background:#fff;border-radius:14px;padding:4px 12px;color:#444}
+  .app{padding:12px 18px;overflow:hidden;flex:1;position:relative;font-size:clamp(11px,.85vw,15px)}
+  .app h1{font-size:1.7em;margin:0 0 2px}.app h3{font-size:1.05em;margin:0 0 8px}
+  .app h2{font-size:1.25em;margin:8px 0 5px}
+  .app textarea{width:100%;height:7.6em;font-family:Consolas,monospace;font-size:.95em;border:1px solid #aaa;padding:5px;resize:none;background:#fff;color:#111}
+  .app button{font-size:.95em;padding:4px 9px;border:1px solid #888;border-radius:3px;background:#efefef;cursor:pointer;margin-right:4px}
+  .app button.hl{outline:3px solid #ff9d3c;background:#fff1de}
+  .app table{border-collapse:collapse;width:100%;font-size:.88em;margin-top:4px}
+  .app th{background:#ddd;border:1px solid #999;padding:3px 5px;text-align:left;font-size:.9em}
+  .app td{border:1px solid #bbb;padding:3px 5px;font-variant-numeric:tabular-nums}
+  .app tr.new td{background:#fff6c8;transition:background 1.5s}
+  .row2{display:flex;gap:12px;margin-top:6px}
+  #map{flex:1;height:150px;border:1px solid #aaa;background:#e8efe2;position:relative}
+  #cursor{position:absolute;width:22px;height:22px;pointer-events:none;z-index:5;transition:none;filter:drop-shadow(0 2px 3px rgba(0,0,0,.5))}
+  #pipe{right:20px;top:100px;width:calc(38% - 30px)}
+  .st{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:6px 0;opacity:.35;transition:opacity .4s,border-color .4s}
+  .st.on{opacity:1;border-color:var(--cyan)}
+  .st b{color:var(--gold)}
+  .arrow{text-align:center;color:var(--muted);line-height:1}
+  #gal{display:flex;gap:6px;margin-top:8px}#gal img{width:24%;border:1px solid var(--line);border-radius:4px;cursor:zoom-in}
+  #lb{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;z-index:99;cursor:zoom-out}
+  #lb img{max-width:94vw;max-height:90vh;border-radius:6px}
+  @media (max-width:900px){#pipe{display:none}#win{width:auto;right:16px;left:16px}}
+</style>
+</head><body>
+<div class="a-title">Interoperabilitate: din B, L, h (GNSS) în X, Y Stereo 70 și H Marea Neagră 1975<small>Simulare RomGEO — aplicația de transformare ETRS89 → Stereo 70 (EPSG:3844) cu grila oficială</small></div>
+
+<div id="win">
+  <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span class="url">🔒 api.romgeo.ro/api/v1/demo.html#ro</span></div>
+  <div class="app">
+    <h1>RomGEO Transformare a Coordonatelor</h1><h3>ETRS89 la Stereo70 (EPSG:3844)</h3>
+    <h2>Date de intrare</h2>
+    <textarea id="inp" readonly spellcheck="false"></textarea>
+    <div style="margin-top:6px"><button id="bT" style="font-weight:700">Transformă</button><span id="done" style="color:#1a8f3a;font-weight:700;display:none"> Transformare finalizată !</span>
+      <span style="margin-left:18px"><b>Exportă:</b> <button class="ex">Salvează ca DXF</button><button class="ex">Salvează ca Shapefile</button><button class="ex">Salvează ca CSV</button></span></div>
+    <h2>Date de ieșire</h2>
+    <table><thead><tr><th>Etichetă</th><th>Latitudine [°]<br><small>ETRS89</small></th><th>Longitudine [°]<br><small>ETRS89</small></th><th>h elips. [m]<br><small>ETRS89</small></th>
+      <th>X Stereo70 [m]<br><small>Nord</small></th><th>Y Stereo70 [m]<br><small>Est</small></th><th>H MN75 [m]<br><small>Marea Neagră 1975</small></th></tr></thead><tbody id="tb"></tbody></table>
+    <div class="row2"><div><button id="bM">Adaugă în hartă</button><div style="color:#a33;font-size:.85em;margin-top:4px;max-width:150px">Notă: harta folosește coordonatele WGS84 de intrare.</div></div>
+      <div id="map"><svg id="msvg" width="100%" height="100%"></svg></div></div>
+    <svg id="cursor" viewBox="0 0 24 24"><path d="M3 2l7 19 2.6-7.4L20 11z" fill="#fff" stroke="#000" stroke-width="1.4"/></svg>
+  </div>
+</div>
+
+<div class="a-panel" id="pipe">
+  <h4>Ce face aplicația, pas cu pas</h4>
+  <div class="st" id="s1"><b>1 · Intrare GNSS</b> — B, L, h în <b>ETRS89</b> (ROMPOS, receptor RTK)</div>
+  <div class="arrow">▼</div>
+  <div class="st" id="s2"><b>2 · Schimbarea datumului</b> — ETRS89 → Pulkovo 1942(58) pe elipsoidul <b>Krasovski 1940</b>, cu <b>grila oficială</b> (aici v. 25.09)</div>
+  <div class="arrow">▼</div>
+  <div class="st" id="s3"><b>3 · Proiecția</b> — stereografică oblică: <b>X (Nord), Y (Est)</b>, k₀ = 0,99975, centru 500 000 / 500 000</div>
+  <div class="arrow">▼</div>
+  <div class="st" id="s4"><b>4 · Altitudinea</b> — modelul de cvasigeoid: <b>H<sub>MN75</sub> = h − ζ</b></div>
+  <div class="st" id="s5" style="border-style:dashed"><b>De reținut:</b> punctul 46° N, 25° E dat în ETRS89 iese la <b>500 031 / 500 120</b>, nu la 500 000 / 500 000 — diferența de datum este de ~124 m.</div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+    <a class="btn" href="https://api.romgeo.ro/api/v1/demo.html#ro" target="_blank" rel="noopener" style="text-decoration:none">↗ Deschide RomGEO</a>
+    <button class="btn" id="bLive">✎ Încearcă cu datele tale (online)</button>
+  </div>
+  <div style="margin-top:8px;color:var(--muted);font-size:.85em">Capturi din aplicația reală (09.10.2026):</div>
+  <div id="gal"><img src="../img/romgeo/01_pagina.png"><img src="../img/romgeo/02_date_intrare.png"><img src="../img/romgeo/03_rezultat.png"><img src="../img/romgeo/04_harta.png"></div>
+</div>
+<div id="lb"><img></div>
+
+<script>
+(function(){
+  const {seg} = AnimUI;
+  // valori reale returnate de API-ul RomGEO (grila 25.09) pe 09.10.2026
+  const PTS = [
+    ['USAMV_Bucuresti', 44.4673, 26.0656, 120.0, 330284.940, 584906.714, 84.610],
+    ['Fagaras_46N25E',  46.0,    25.0,    500.0, 500031.265, 500120.224, 460.392],
+    ['Constanta_Port',  44.1733, 28.6593,  40.0, 303676.965, 792713.808,   6.250],
+    ['Cluj_Napoca',     46.7712, 23.6236, 400.0, 586651.370, 395015.474, 359.404],
+    ['Iasi',            47.1585, 27.6014, 130.0, 632037.405, 697337.942,  97.600],
+    ['Timisoara',       45.7489, 21.2087, 130.0, 479134.112, 205238.724,  86.918]];
+  const PTS0 = PTS.map(a => a.slice()), fmt = (v, d) => v.toFixed(d);
+  const TXT = PTS.map(p => `${p[0]} ${p[1]} ${p[2]} ${p[3].toFixed(1)}`).join('\n');
+  const inp = document.getElementById('inp'), tb = document.getElementById('tb'), cur = document.getElementById('cursor'), app = document.querySelector('.app');
+
+  // harta (contur Romania, lat/lon echirectangular)
+  const ms = document.getElementById('msvg');
+  const ring = (ROMANIA.type === 'Polygon' ? [ROMANIA.coordinates] : ROMANIA.coordinates).map(p => p[0]).sort((a,b)=>b.length-a.length)[0];
+  function mapXY(lon, lat){ const w = ms.clientWidth || 400, h = ms.clientHeight || 150, k = Math.min(w/(9.5*0.7), h/5.2);
+    return [w/2 + (lon - 25)*0.7*k, h/2 - (lat - 45.95)*k]; }
+  function drawMap(n){
+    let h = `<path d="${ring.map((p,i) => (i?'L':'M') + mapXY(p[0], p[1]).map(v=>v.toFixed(1)).join(' ')).join(' ')}Z" fill="#f5f3e8" stroke="#8a8a8a" stroke-width="1.2"/>`;
+    PTS.slice(0, n).forEach(p => { const [x, y] = mapXY(p[2], p[1]); h += `<path d="M${x} ${y} l-6 -14 a7 7 0 1 1 12 0z" fill="#2a7de1" stroke="#124" stroke-width="1"/><text x="${x+8}" y="${y-8}" font-size="11" fill="#123">${p[0].split('_')[0]}</text>`; });
+    ms.innerHTML = h;
+  }
+  function fill(n, hiLast){
+    tb.innerHTML = PTS.slice(0, n).map((p,i) => `<tr class="${hiLast && i === n-1 ? 'new' : ''}"><td>${p[0]}</td><td>${p[1]}</td><td>${p[2]}</td><td>${fmt(p[3],1)}</td><td><b>${fmt(p[4],3)}</b></td><td><b>${fmt(p[5],3)}</b></td><td><b>${fmt(p[6],3)}</b></td></tr>`).join('');
+  }
+  // pozitia cursorului: centrul unui element, relativ la .app
+  const at = el => { const a = app.getBoundingClientRect(), r = el.getBoundingClientRect(); return [r.left - a.left + r.width*0.5, r.top - a.top + r.height*0.6]; };
+  const lerp2 = (p, q, k) => [p[0] + (q[0]-p[0])*k, p[1] + (q[1]-p[1])*k];
+
+  let live = false, lastN = -1, lastM = -1;
+  const st = [1,2,3,4,5].map(i => document.getElementById('s'+i));
+  const clk = AnimUI.init({duration:32, loop:true, phases:[
+    {t:0,  text:'Datele GNSS (ETRS89): <b>nume, latitudine, longitudine, înălțime elipsoidală</b> — câte un punct pe rând, separate prin spațiu.'},
+    {t:8,  text:'Un clic pe <b>Transformă</b>: datele merg la serviciul RomGEO, care aplică grila oficială de transformare.'},
+    {t:10, text:'Rezultatul: <b>X (Nord), Y (Est)</b> în Stereo 70 și <b>altitudinea H</b> în sistemul Marea Neagră 1975, la milimetru.'},
+    {t:14, text:'<b>Adaugă în hartă</b> — verificarea vizuală a poziției punctelor (greșelile de format se văd imediat).'},
+    {t:19, text:'Export direct în <b>DXF</b> (CAD), <b>Shapefile</b> (GIS) sau <b>CSV</b>.'},
+    {t:23, text:'Atenție: 46° N, 25° E în ETRS89 <b>nu</b> cade în 500 000 / 500 000 — centrul proiecției e definit în datumul vechi (Pulkovo 1942(58)); diferența ≈ 124 m.'}],
+    onSeek:()=>{ lastN = -1; lastM = -1; }});
+
+  function frame(){
+    const t = clk.update();
+    if(!live){
+      // tastare
+      const nCh = Math.floor(TXT.length*seg(t, 1.5, 7.5, x=>x)); inp.value = TXT.slice(0, nCh);
+      // cursor
+      const pT = at(document.getElementById('bT')), pM = at(document.getElementById('bM')), pI = at(inp), pE = at(document.querySelectorAll('.ex')[1]);
+      let c = pI;
+      if(t > 7.5) c = lerp2(pI, pT, seg(t, 7.5, 8.6));
+      if(t > 12.5) c = lerp2(pT, pM, seg(t, 12.5, 14));
+      if(t > 18.5) c = lerp2(pM, pE, seg(t, 18.5, 19.8));
+      cur.style.left = c[0] + 'px'; cur.style.top = c[1] + 'px';
+      const click = (t > 8.6 && t < 8.9) || (t > 14 && t < 14.3);
+      cur.style.transform = click ? 'scale(.8)' : 'scale(1)';
+      document.getElementById('bT').classList.toggle('hl', t > 8.4 && t < 9.4);
+      document.getElementById('bM').classList.toggle('hl', t > 13.8 && t < 14.8);
+      document.querySelectorAll('.ex').forEach(b => b.classList.toggle('hl', t > 19.5 && t < 23));
+      document.getElementById('done').style.display = (t > 9.4 && t < 12.5) ? 'inline' : 'none';
+      const n = t < 9 ? 0 : Math.min(PTS.length, 1 + Math.floor((t - 9)/0.5));
+      if(n !== lastN){ lastN = n; fill(n, true); }
+      const m = t < 14.3 ? 0 : Math.min(PTS.length, 1 + Math.floor((t - 14.3)/0.4));
+      if(m !== lastM){ lastM = m; drawMap(m); }
+      const on = [t > 1.5, t > 9, t > 9.8, t > 10.6, t > 23];
+      st.forEach((e,i) => e.classList.toggle('on', on[i]));
+    }
+    requestAnimationFrame(frame);
+  }
+  frame();
+
+  // modul live: datele utilizatorului trimise la API-ul real
+  const bLive = document.getElementById('bLive'), bT = document.getElementById('bT');
+  bLive.onclick = () => {
+    live = !live; bLive.classList.toggle('on', live);
+    if(live){ clk.pause(); inp.readOnly = false; inp.value = TXT; inp.focus(); cur.style.display = 'none';
+      document.querySelector('.a-caption').innerHTML = 'Mod live: scrie sau lipește puncte (nume lat lon h) și apasă <b>Transformă</b> — se folosește serviciul RomGEO real (necesită internet).'; }
+    else { inp.readOnly = true; cur.style.display = ''; PTS.splice(0, PTS.length, ...PTS0.map(a => a.slice())); lastN = lastM = -1; clk.play(); }
+  };
+  bT.onclick = async () => {
+    if(!live) return;
+    const lines = inp.value.split('\n').filter(l => l.trim());
+    document.getElementById('done').style.display = 'none';
+    try{
+      const r = await fetch('https://api.romgeo.ro/api/v1/transformMultiText/', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(lines)});
+      const d = await r.json();
+      tb.innerHTML = d.result.map(p => { const ok = !isNaN(parseFloat(p[4]));
+        return `<tr style="${ok ? '' : 'color:#c00'}"><td>${p[0]}</td><td>${p[1]}</td><td>${p[2]}</td><td>${p[3]}</td><td><b>${ok ? (+p[4]).toFixed(3) : '—'}</b></td><td><b>${ok ? (+p[5]).toFixed(3) : '—'}</b></td><td><b>${ok ? (+p[6]).toFixed(3) : 'eroare / în afara zonei'}</b></td></tr>`; }).join('');
+      const pts = d.result.filter(p => !isNaN(parseFloat(p[4])));
+      PTS.length = 0; pts.forEach(p => PTS.push([String(p[0]), +p[1], +p[2], +p[3], +p[4], +p[5], +p[6]]));
+      drawMap(PTS.length); document.getElementById('done').style.display = 'inline';
+    } catch(e){
+      tb.innerHTML = '<tr><td colspan="7" style="color:#c00">Serviciul nu poate fi accesat (fără internet?). Simularea offline rămâne disponibilă.</td></tr>';
+    }
+  };
+  // galerie
+  const lb = document.getElementById('lb');
+  document.querySelectorAll('#gal img').forEach(i => i.onclick = () => { lb.querySelector('img').src = i.src; lb.style.display = 'flex'; });
+  lb.onclick = () => lb.style.display = 'none';
+})();
+</script>
+</body></html>

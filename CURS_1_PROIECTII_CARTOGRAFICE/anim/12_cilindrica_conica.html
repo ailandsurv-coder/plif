@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Proiecția cilindrică și conică</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/three.min.js"></script><script src="../lib/OrbitControls.js"></script><script src="../lib/topojson-client.min.js"></script>
+<script src="../lib/world-data.js"></script><script src="../lib/earth-tex.js"></script>
+<script src="../lib/anim-ui.js"></script><script src="../lib/globe.js"></script><script src="../lib/lumina.js"></script>
+</head><body><div id="stage"></div>
+<div class="a-title">Globul, becul și coala de hârtie<small>Exercițiu de imaginație — cum „împinge" lumina desenul de pe glob pe o suprafață desfășurabilă</small></div>
+<div class="opts">
+  <button id="bCyl" class="on">Cilindru (tangent la ecuator)</button>
+  <button id="bCon">Con (tangent la 45° N)</button>
+</div>
+<div class="a-panel" id="pan" style="left:28px;top:120px;max-width:340px"></div>
+<div class="hint">Trage cu mouse-ul pentru a roti scena · rotița = zoom</div>
+<script>
+(function(){
+  const {seg, lerp, ease} = AnimUI;
+  const kit = GlobeKit.create(document.getElementById('stage'), {camZ:5});
+  kit.scene.add(new THREE.AmbientLight(0xffffff, 1));
+  const G = GlobeKit.morphGlobe(kit, {graticule:30, step:3});
+  G.meshes.forEach(m => { m.material.opacity = 0.55; m.material.depthWrite = false; });
+  G.lines.forEach(l => l.material.opacity = 0.5);
+  const I3 = new THREE.Matrix3();                         // globul nu e rotit: cadru = geografic
+  const tex = GlobeKit.earthTexture();
+
+  const cyl = Lumina.makeSheet({type:'cyl', h:1.45}, tex, I3);
+  const con = Lumina.makeSheet({type:'cone', lat:45, umin:0.12, umax:2.0}, tex, I3);
+  [cyl, con].forEach(m => { m.material.uniforms.mode.value = 0; m.renderOrder = 2; kit.root.add(m); });
+  const bulb = Lumina.bulb(kit.root);
+  const R = Lumina.rays(kit.root, 70); R.material.linewidth = 2;
+
+  // puncte pentru raze: coasta, esantionata
+  const pts = [];
+  GlobeKit.landRings().forEach(r => r.forEach((p,i) => { if(i % 9 === 0) pts.push(p); }));
+  const pick = (lat0, lat1) => { const o = []; for(let i=0;i<pts.length && o.length<70;i+=Math.max(1, Math.floor(pts.length/260))) if(pts[i][1] > lat0 && pts[i][1] < lat1 && Math.abs(pts[i][0]) < 110) o.push(pts[i]); return o; };
+  const rayPts = {cyl:pick(-60,62), cone:pick(8,72)};
+
+  const pan = document.getElementById('pan');
+  const PAN = {
+    cyl:'<h4>Cilindrică centrală (perspectivă)</h4>Linia de contact: <b>ecuatorul</b> (scară 1).<br>x = R·λ &nbsp;·&nbsp; y = R·tg φ<br><span style="color:var(--muted)">Meridiane: drepte paralele echidistante. Paralele: drepte, tot mai rare spre poli. Polii nu se pot reprezenta.</span>',
+    cone:'<h4>Conică centrală (perspectivă)</h4>Linia de contact: <b>paralela de 45°</b> (scară 1).<br>Sector de cerc cu unghiul 360°·sin φ₀ = 255°<br><span style="color:var(--muted)">Meridiane: drepte concurente în vârful conului. Paralele: arce de cerc concentrice.</span>'};
+
+  const D = 21;
+  const phases = [
+    {t:0,  text:'Un glob de sticlă pe care sunt desenate continentele, învelit într-o coală de hârtie rulată în <b>cilindru</b>, tangent la ecuator.'},
+    {t:2,  text:'Se aprinde un <b>bec în centrul globului</b>. Fiecare rază trece printr-un punct colorat de pe glob și îl „împinge" pe coală.'},
+    {t:4,  text:'Coala se colorează. Pe ecuator — linia de contact — imaginea e la scară; <b>spre poli se alungește tot mai mult</b>.'},
+    {t:10, text:'Se desface coala: rezultă o <b>hartă în proiecție cilindrică</b>. Meridianele și paralelele devin drepte perpendiculare.'},
+    {t:15.5, text:'Becul din centru dă proiecția <b>cilindrică centrală</b>. Hărțile folosite în practică (Mercator, UTM) au <b>formule matematice</b> alese pentru a controla deformările.'},
+    {t:D,    text:'Aceeași idee cu o coală rulată în <b>con</b>, tangent la paralela de 45° N.'},
+    {t:D+2,  text:'Becul aprins proiectează desenul pe con; pe paralela de tangență scara este exactă.'},
+    {t:D+4,  text:'Deformările cresc <b>spre nord și spre sud</b> de paralela de contact — conul se potrivește teritoriilor întinse pe longitudine.'},
+    {t:D+10, text:'Desfăcut, conul devine un <b>sector de cerc</b>: meridiane — drepte concurente; paralele — arce concentrice.'},
+    {t:D+15.5, text:'Varianta matematică cea mai folosită: <b>Lambert conformă conică</b> (LCC) — de ex. hărțile aeronautice și sistemele naționale din Franța, Belgia, Estonia.'}];
+  const clk = AnimUI.init({duration:2*D, loop:true, phases, onSeek:()=>{ manual = false; controls.enabled = false; }});
+
+  // camera: scriptata; daca utilizatorul trage cu mouse-ul, trece pe control manual pana la reluare
+  const controls = new THREE.OrbitControls(kit.camera, kit.renderer.domElement);
+  controls.enabled = false; let manual = false;
+  kit.renderer.domElement.addEventListener('pointerdown', () => { if(!manual){ manual = true; controls.enabled = true; controls.target.copy(look); } });
+  const look = new THREE.Vector3();
+  function cam(pos, tgt, up){ kit.camera.position.copy(pos); kit.camera.up.copy(up); look.copy(tgt); kit.camera.lookAt(tgt); }
+
+  document.getElementById('bCyl').onclick = () => clk.seek(0);
+  document.getElementById('bCon').onclick = () => clk.seek(D);
+  const V = (x,y,z) => new THREE.Vector3(x,y,z);
+
+  let lastKind = '';
+  function frame(){
+    const t = clk.update();
+    const kind = t < D ? 'cyl' : 'cone', tt = t < D ? t : t - D, sh = kind === 'cyl' ? cyl : con;
+    if(kind !== lastKind){ lastKind = kind; pan.innerHTML = PAN[kind];
+      document.getElementById('bCyl').classList.toggle('on', kind==='cyl'); document.getElementById('bCon').classList.toggle('on', kind==='cone'); }
+    cyl.visible = kind === 'cyl'; con.visible = kind === 'cone';
+
+    const appear = seg(tt, 0, 1.6), on = seg(tt, 2, 3.2), rev = seg(tt, 4, 9.5, x=>x), un = seg(tt, 10, 15), back = seg(tt, 20, 21);
+    sh.material.uniforms.reveal.value = rev > 0 ? rev*1.02 : -1;
+    sh.material.uniforms.opacity.value = (0.25 + 0.6*appear + 0.15*un) * (1 - back);
+    // coala goala vizibila inainte de colorare: un al doilea strat discret
+    Lumina.unroll(sh, un);
+    bulb.setOn(on*(1 - un)); bulb.visible = un < 0.99;
+    G.group.visible = un < 0.98; G.meshes.forEach(m => m.material.opacity = 0.55*(1 - un));
+    G.lines.forEach(l => l.material.opacity = 0.5*(1 - un));
+
+    // raze
+    const pos = R.geometry.attributes.position, list = rayPts[kind], L = V(0,0,0), nShow = Math.floor(list.length * Math.min(1, rev*1.15));
+    for(let i=0;i<70;i++){
+      let ok = false;
+      if(i < nShow){
+        const p = list[i], g = Lumina.geoToFrame(p[0], p[1], I3), h = Lumina.hitSheet(sh.userData.sh, 0, L, g);
+        if(h){ pos.setXYZ(4*i, 0,0,0); pos.setXYZ(4*i+1, g.x,g.y,g.z); pos.setXYZ(4*i+2, g.x,g.y,g.z); pos.setXYZ(4*i+3, h.x,h.y,h.z); ok = true; }
+      }
+      if(!ok) for(let k=0;k<4;k++) pos.setXYZ(4*i+k, 0,0,0);
+    }
+    pos.needsUpdate = true; R.material.opacity = 0.8*on*(1 - seg(tt, 9.5, 10.5));
+
+    if(!manual){
+      const e = ease(un);
+      if(kind === 'cyl'){
+        const p0 = V(4.4, 2.3, 5.8), p1 = V(0, -0.15, 10.2);
+        cam(p0.lerp(p1, e), V(0,0,0).lerp(V(0,0,1), e), V(0,1,0));
+      } else {
+        const yA = con.userData.sh.yA, p0 = V(4.6, 3.0, 5.6), p1 = V(0, yA + 9.0, 0.001);
+        const up = V(0,1,0).lerp(V(0,0,-1), e).normalize();
+        cam(p0.lerp(p1, e), V(0,0.5,0).lerp(V(0,yA,0), e), up);
+      }
+    } else controls.update();
+    kit.render();
+    requestAnimationFrame(frame);
+  }
+  frame();
+})();
+</script>
+</body></html>

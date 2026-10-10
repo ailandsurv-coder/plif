@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Zborul fotogrametric</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/three.min.js"></script><script src="../lib/OrbitControls.js"></script>
+<script src="../lib/anim-ui.js"></script><script src="../lib/teren.js"></script><script src="../lib/drona.js"></script>
+<style>
+  #info{right:20px;top:110px;width:300px;font-size:clamp(12px,1vw,17px)}
+  #info .big{font-size:2.1em;font-weight:800;color:var(--gold);font-variant-numeric:tabular-nums;line-height:1}
+  #leg{display:flex;gap:3px;margin-top:8px}#leg div{flex:1;text-align:center;font-size:.8em}#leg i{display:block;height:12px;border-radius:3px;margin-bottom:2px}
+  #strip{position:absolute;left:24px;top:110px;display:flex;flex-direction:column;gap:8px}
+  #strip canvas{width:190px;height:127px;border-radius:6px;border:2px solid #fff;box-shadow:0 6px 18px rgba(0,0,0,.6);background:#222}
+  #strip .l{font-size:12px;color:var(--muted);margin-top:-4px}
+</style>
+</head><body><div id="stage"></div>
+<div class="a-title">Pasul 2 — Zborul cu suprapunerea imaginilor<small>Drona urmează automat benzile; la fiecare punct al planului declanșează camera · harta arată în câte imagini apare fiecare loc</small></div>
+<div id="strip"><div class="l">ultimele fotografii</div></div>
+<div class="a-panel" id="info">
+  <div style="color:var(--muted)">Fotografii</div><div class="big" id="nph">0</div>
+  <div style="margin-top:8px;color:var(--muted)">Banda curentă · suprafață acoperită</div><div id="cov" style="font-weight:700"></div>
+  <div style="margin-top:10px;color:var(--muted)">Număr de imagini în care apare fiecare loc:</div>
+  <div id="leg"></div>
+  <div id="note" style="margin-top:10px;color:var(--muted);font-size:.9em"></div>
+</div>
+<script>
+(function(){
+  const {seg, lerp, ease} = AnimUI, T = window.TEREN, EX = 2, Z0 = 60;
+  // ---------- scena
+  const ren = new THREE.WebGLRenderer({antialias:true, alpha:true, preserveDrawingBuffer:true}); ren.setPixelRatio(Math.min(2, devicePixelRatio||1)); document.getElementById('stage').appendChild(ren.domElement);
+  const sc = new THREE.Scene(), cam = new THREE.PerspectiveCamera(42, 1, 1, 6000); DRONA.lights(sc);
+  const ctr = new THREE.OrbitControls(cam, ren.domElement); ctr.enableDamping = true; let manual = false; ren.domElement.addEventListener('pointerdown', () => manual = true);
+  function rs(){ ren.setSize(innerWidth, innerHeight); cam.aspect = innerWidth/innerHeight; cam.updateProjectionMatrix(); } addEventListener('resize', rs); rs();
+  const P3 = (x, y, z) => new THREE.Vector3(x - T.W/2, (z - Z0)*EX, -(y - T.H/2));
+  const g = T.mesh(T.surface, {nx:240, ny:150, ex:EX, z0:Z0, colorFn:(x, y) => T.rgb(x, y)});
+  sc.add(new THREE.Mesh(g, new THREE.MeshLambertMaterial({vertexColors:true, side:THREE.DoubleSide})));
+  // ---------- planul de zbor (ca în pasul 1: GSD 2,5 cm, 80 / 70 %, senzor 1″)
+  const ANG = Math.atan2(T.cB[1] - T.cA[1], T.cB[0] - T.cA[0]), O = [70, 95], LU = 640, LV = 330;
+  const toXY = (u, v) => [O[0] + u*Math.cos(ANG) - v*Math.sin(ANG), O[1] + u*Math.sin(ANG) + v*Math.cos(ANG)];
+  const H = 91, fwL = 91.2, fwA = 136.8, bs = fwL*0.2, ls = fwA*0.3, nL = Math.ceil(LV/ls) + 1, nP = Math.ceil((LU + 2*bs)/bs) + 1;
+  const PH = []; for(let i=0;i<nL;i++){ const v = Math.min(LV, i*LV/(nL - 1)); const us = []; for(let j=0;j<nP;j++) us.push(-bs + j*bs); if(i % 2) us.reverse(); us.forEach(u => PH.push({u, v, line:i})); }
+  const zFly = 64 + H;                                                // cota de zbor (MN75)
+  const pathPts = PH.map(p => { const [x, y] = toXY(p.u, p.v); return P3(x, y, zFly); });
+  // traseul (linia roșie) desenat progresiv
+  const pathG = new THREE.BufferGeometry().setFromPoints(pathPts); const pathL = new THREE.Line(pathG, new THREE.LineBasicMaterial({color:0xff6262})); sc.add(pathL);
+  // conturul zonei
+  const zone = [[0,0],[LU,0],[LU,LV],[0,LV],[0,0]].map(([u, v]) => { const [x, y] = toXY(u, v); return P3(x, y, T.ground(x, y) + 1); });
+  sc.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(zone), new THREE.LineBasicMaterial({color:0xffc940})));
+  // ---------- harta suprapunerilor: grilă în (u, v), afișată pe o plasă care urmărește terenul
+  const CS = 4, NU = Math.round(LU/CS), NV = Math.round(LV/CS), cnt = new Uint8Array(NU*NV);
+  const hc = document.createElement('canvas'); hc.width = NU; hc.height = NV; const hx = hc.getContext('2d'), hid = hx.createImageData(NU, NV);
+  const COL = [[0,0,0,0],[214,38,58,150],[240,138,60,140],[242,210,75,130],[168,214,90,120],[60,180,90,110],[47,111,216,105]];
+  const ci = n => COL[n === 0 ? 0 : n === 1 ? 1 : n <= 3 ? 2 : n <= 6 ? 3 : n <= 9 ? 4 : n <= 14 ? 5 : 6];
+  const tex = new THREE.CanvasTexture(hc); tex.magFilter = THREE.NearestFilter;
+  const hg = new THREE.PlaneGeometry(1, 1, NU, NV), hp = hg.attributes.position, huv = hg.attributes.uv;
+  for(let i=0;i<hp.count;i++){ const uu = (hp.getX(i) + 0.5)*LU, vv = (hp.getY(i) + 0.5)*LV, [x, y] = toXY(uu, vv), q = P3(x, y, T.surface(x, y) + 0.6); hp.setXYZ(i, q.x, q.y, q.z); }
+  hp.needsUpdate = true; hg.computeVertexNormals();
+  const heat = new THREE.Mesh(hg, new THREE.MeshBasicMaterial({map:tex, transparent:true, depthWrite:false, side:THREE.DoubleSide})); heat.renderOrder = 2; sc.add(heat);
+  function addPhoto(p){ for(let j=0;j<NV;j++){ const v = (j + 0.5)*CS; if(Math.abs(v - p.v) > fwA/2) continue;
+      for(let i=0;i<NU;i++){ const u = (i + 0.5)*CS; if(Math.abs(u - p.u) <= fwL/2) cnt[j*NU + i]++; } } }
+  function paint(){ for(let k=0;k<NU*NV;k++){ const c = ci(cnt[k]), j = Math.floor(k/NU), i = k % NU, o = 4*((NV - 1 - j)*NU + i); hid.data[o] = c[0]; hid.data[o+1] = c[1]; hid.data[o+2] = c[2]; hid.data[o+3] = c[3]; }
+    hx.putImageData(hid, 0, 0); tex.needsUpdate = true; }
+  // ---------- drona și piramida camerei
+  const dr = DRONA.multirotor(); dr.scale.setScalar(26); sc.add(dr);
+  const fr = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({color:0x7fe7ff, transparent:true})); sc.add(fr);
+  const fp = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({color:0x7fe7ff, transparent:true, opacity:0.35, side:THREE.DoubleSide, depthWrite:false})); sc.add(fp);
+  function frustum(p, k){ const C = P3(...toXY(p.u, p.v), zFly), cor = [[-1,-1],[1,-1],[1,1],[-1,1]].map(([a, b]) => { const [x, y] = toXY(p.u + a*fwL/2, p.v + b*fwA/2); return P3(x, y, T.surface(x, y) + 0.8); });
+    const L = []; cor.forEach(q => L.push(C, q)); cor.forEach((q, i) => L.push(q, cor[(i + 1) % 4])); fr.geometry.setFromPoints(L); fr.material.opacity = k;
+    fp.geometry.setFromPoints([cor[0], cor[1], cor[2], cor[0], cor[2], cor[3]]); fp.material.opacity = 0.35*k; }
+  // ---------- banda cu fotografii (decupaje din ortofotoplan)
+  const ORT = T.orto(1), strip = document.getElementById('strip'), thumbs = [];
+  for(let i=0;i<4;i++){ const c = document.createElement('canvas'); c.width = 300; c.height = 200; strip.appendChild(c); thumbs.push(c); }
+  function shot(p, n){ const c = thumbs.pop(); thumbs.unshift(c); strip.insertBefore(c, strip.children[1]);
+    const x = c.getContext('2d'), [cx, cy] = toXY(p.u, p.v); x.save(); x.fillStyle = '#222'; x.fillRect(0, 0, 300, 200);
+    x.translate(150, 100); x.rotate(ANG + (p.line % 2 ? Math.PI : 0)); x.scale(300/fwA, 200/fwL); x.rotate(-Math.PI/2);
+    x.drawImage(ORT, -cx, -(T.H - cy)); x.restore(); x.fillStyle = 'rgba(0,0,0,.6)'; x.fillRect(0, 176, 300, 24); x.fillStyle = '#fff'; x.font = '15px Segoe UI'; x.fillText('DSC_' + String(1000 + n), 8, 194); }
+  // legenda
+  document.getElementById('leg').innerHTML = [[1,'1'],[2,'2–3'],[3,'4–6'],[4,'7–9'],[5,'10–14'],[6,'15+']].map(([i, t]) => `<div><i style="background:rgba(${COL[i].slice(0,3).join(',')},.9)"></i>${t}</div>`).join('');
+  const D = 40, TF0 = 3, TF1 = 34;                                    // decolare 0–3 s, zbor 3–34 s, final 34–40 s
+  const clk = AnimUI.init({duration:D, loop:true, phases:[
+    {t:0, text:'Decolare din punctul de start și urcare la altitudinea planificată (<b>~90 m</b>).'},
+    {t:3, text:'Drona parcurge benzile automat; la fiecare <b>~18 m</b> declanșează camera. Fiecare fotografie acoperă ~91 × 137 m.'},
+    {t:12, text:'Amprentele se suprapun: <b>80 %</b> pe direcția de zbor și <b>70 %</b> între benzi — culorile arată în câte imagini apare fiecare loc.'},
+    {t:34, text:'Cu 80 % și 70 %, fiecare punct din interior apare în <b>~15–20 de imagini</b> (≈ 1 / (0,2 × 0,3)) — reconstrucție 3D sigură. Spre margini sunt mai puține: de aceea benzile depășesc zona.'}],
+    onSeek:() => { reset = true; }});
+  let reset = true, done = 0;
+  (function frame(){
+    const t = clk.update();
+    const k = seg(t, TF0, TF1, x=>x), target = Math.floor(k*PH.length);
+    if(reset || target < done){ cnt.fill(0); done = 0; reset = false; }
+    while(done < target){ addPhoto(PH[done]); if(target - done <= 4) shot(PH[done], done + 1); done++; }
+    if(done % 2 === 0 || k >= 1) paint();
+    // poziția dronei
+    let pos;
+    if(t < TF0){ const st = P3(...toXY(-60, -40), T.ground(...toXY(-60, -40)) + 2), a1 = pathPts[0]; pos = st.clone().lerp(new THREE.Vector3(st.x, a1.y, st.z), ease(seg(t, 0, 1.6))).lerp(a1, ease(seg(t, 1.6, 3))); }
+    else if(k < 1){ const fi = k*(PH.length - 1), i0 = Math.floor(fi); pos = pathPts[i0].clone().lerp(pathPts[Math.min(PH.length - 1, i0 + 1)], fi - i0); }
+    else pos = pathPts[PH.length - 1].clone();
+    dr.position.copy(pos); DRONA.spin(dr, clk.dt*clk.speed + 0.016, 60);
+    if(k > 0 && k < 1){ const i = Math.min(PH.length - 1, done - 1); if(i >= 0){ const dir = pathPts[Math.min(PH.length - 1, i + 1)].clone().sub(pathPts[i]); if(dir.lengthSq() > 1) dr.rotation.y = Math.atan2(dir.x, dir.z); }
+      frustum(PH[Math.max(0, done - 1)], 1 - ((k*PH.length) % 1)); fr.visible = fp.visible = true; } else fr.visible = fp.visible = false;
+    pathG.setDrawRange(0, Math.max(1, done));
+    // informații
+    const cov = cnt.reduce((a, c) => a + (c > 0), 0)/cnt.length, cur = done ? PH[done - 1].line + 1 : 0;
+    document.getElementById('nph').textContent = done + ' / ' + PH.length;
+    document.getElementById('cov').textContent = `banda ${cur} din ${nL} · ${(cov*100).toFixed(0)} %`;
+    if(k >= 1){ const ins = []; for(let j=3;j<NV-3;j++) for(let i=3;i<NU-3;i++) ins.push(cnt[j*NU+i]); ins.sort((a, b) => a - b);
+      document.getElementById('note').innerHTML = `În interiorul zonei: minim <b style="color:#fff">${ins[0]}</b>, median <b style="color:#fff">${ins[Math.floor(ins.length/2)]}</b> imagini pe punct.`; }
+    else document.getElementById('note').textContent = '';
+    // camera: urmărește drona, apoi vedere de ansamblu
+    if(!manual){ const over = ease(seg(t, TF1, TF1 + 2.5));
+      const follow = pos.clone().add(new THREE.Vector3(-260, 230, 300)), wide = new THREE.Vector3(-120, 520, 520);
+      cam.position.lerp(follow.clone().lerp(wide, over), 0.06); ctr.target.lerp(pos.clone().multiplyScalar(1 - over).add(new THREE.Vector3(-20, -60, 0).multiplyScalar(1 - over)), 0.06); cam.lookAt(ctr.target); }
+    ctr.update(); ren.render(sc, cam); requestAnimationFrame(frame);
+  })();
+})();
+</script>
+</body></html>

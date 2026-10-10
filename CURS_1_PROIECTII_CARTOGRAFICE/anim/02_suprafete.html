@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Suprafețe de referință ale Pământului</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/three.min.js"></script><script src="../lib/OrbitControls.js"></script>
+<script src="../lib/anim-ui.js"></script>
+<style>
+  #g3{position:absolute;left:0;top:90px;width:40%;bottom:150px}
+  #sx{position:absolute;left:40%;right:16px;top:90px;bottom:150px}
+  #sx svg{width:100%;height:100%}
+  #exag{position:absolute;left:24px;bottom:160px;width:calc(40% - 48px)}
+  .seclbl{font-family:var(--font)}
+  @media (max-width:900px){#g3,#exag{display:none}#sx{left:0}}
+</style>
+</head><body>
+<div class="a-title">Suprafețe de referință ale Pământului<small>Suprafața topografică · geoidul · elipsoidul — și legătura dintre ele</small></div>
+<div id="g3"></div>
+<div class="a-panel" id="exag" style="padding:10px 14px">
+  <b style="color:var(--cyan)">Geoidul</b> — ondulații exagerate <span id="exv">×9 000</span>
+  <input id="exr" type="range" min="0" max="15000" step="500" value="9000" style="width:100%">
+  <div style="font-size:.8em;color:var(--muted)">model simplificat după EGM2008 (ilustrativ): −106 m în Oceanul Indian, +80 m în Noua Guinee, ≈ +40 m în România</div>
+</div>
+<div id="sx"><svg viewBox="0 0 1000 640" id="svg"></svg></div>
+<script>
+(function(){
+  const {seg, lerp, ease} = AnimUI, D2R = Math.PI/180;
+  // -------- geoidul 3D („cartoful") --------
+  const box = document.getElementById('g3');
+  const ren = new THREE.WebGLRenderer({antialias:true, alpha:true, preserveDrawingBuffer:true}); ren.setPixelRatio(Math.min(2, devicePixelRatio||1)); box.appendChild(ren.domElement);
+  const scene = new THREE.Scene(), cam = new THREE.PerspectiveCamera(32, 1, 0.1, 50); cam.position.set(0, 0.5, 5.4); cam.lookAt(0,0,0);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.62)); const dl = new THREE.DirectionalLight(0xffffff, 0.45); dl.position.set(3,2,4); scene.add(dl);
+  const bumps = [[5,78,-106,18],[-5,147,80,15],[55,-25,62,18],[60,-90,-50,14],[15,-110,-45,14],[-70,180,-55,20],[-15,-70,35,12],[-30,15,30,18],[48,18,42,13],[-55,-30,-30,20],[30,70,-30,12]];
+  const und = (lat, lon) => { let s = 0; bumps.forEach(([bl,bo,a,sg]) => {
+      const c = Math.acos(Math.max(-1, Math.min(1, Math.sin(lat*D2R)*Math.sin(bl*D2R) + Math.cos(lat*D2R)*Math.cos(bl*D2R)*Math.cos((lon-bo)*D2R))))/D2R;
+      s += a*Math.exp(-c*c/(2*sg*sg)); }); return s; };
+  const NL = 120, NF = 60, pos = [], base = [], colr = [], N = [], idx = [];
+  // scala „Potsdam": albastru (geoid sub elipsoid) -> verde -> galben -> rosu (deasupra)
+  const stops = [[-100,[0.10,0.20,0.85]],[-50,[0.15,0.55,1.0]],[-15,[0.20,0.80,0.75]],[10,[0.45,0.85,0.30]],[35,[0.98,0.85,0.20]],[60,[1.0,0.50,0.12]],[85,[0.85,0.12,0.12]]];
+  const cmap = v => { for(let i=1;i<stops.length;i++) if(v <= stops[i][0] || i === stops.length-1){ const [a,ca] = stops[i-1], [b,cb] = stops[i], k = Math.max(0, Math.min(1, (v-a)/(b-a)));
+      return new THREE.Color().setRGB(ca[0]+(cb[0]-ca[0])*k, ca[1]+(cb[1]-ca[1])*k, ca[2]+(cb[2]-ca[2])*k); } };
+  for(let j=0;j<=NF;j++) for(let i=0;i<=NL;i++){
+    const lat = -90 + 180*j/NF, lon = -180 + 360*i/NL, n = und(lat, lon);
+    const d = [Math.cos(lat*D2R)*Math.sin(lon*D2R), Math.sin(lat*D2R), Math.cos(lat*D2R)*Math.cos(lon*D2R)];
+    base.push(...d); pos.push(...d); N.push(n); const c = cmap(n); colr.push(c.r, c.g, c.b);
+  }
+  for(let j=0;j<NF;j++) for(let i=0;i<NL;i++){ const a = j*(NL+1)+i, b = a+1, c = a+NL+1, d = c+1; idx.push(a,b,d, a,d,c); }
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.Float32BufferAttribute(colr, 3)); geo.setIndex(idx);
+  const geoid = new THREE.Mesh(geo, new THREE.MeshPhongMaterial({vertexColors:true, shininess:6, specular:0x222222}));
+  const ell = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24), new THREE.MeshBasicMaterial({color:0x9fc6ff, wireframe:true, transparent:true, opacity:0.18}));
+  const grp = new THREE.Group(); grp.add(geoid); grp.add(ell); scene.add(grp); grp.rotation.x = 0.25;
+  let EX = 9000;
+  function setEx(e){ EX = e; const a = geo.attributes.position; for(let i=0;i<a.count;i++){ const r = 1 + N[i]*e/6378000; a.setXYZ(i, base[3*i]*r, base[3*i+1]*r, base[3*i+2]*r); } a.needsUpdate = true; geo.computeVertexNormals(); }
+  setEx(EX);
+  document.getElementById('exr').oninput = e => { setEx(+e.target.value); document.getElementById('exv').textContent = '×' + (+e.target.value).toLocaleString('ro-RO'); };
+  const oc = new THREE.OrbitControls(cam, ren.domElement); oc.enablePan = false; oc.enableZoom = false;
+  function rs(){ const w = box.clientWidth, h = box.clientHeight; ren.setSize(w, h); cam.aspect = w/h; cam.updateProjectionMatrix(); }
+  addEventListener('resize', rs); rs();
+
+  // -------- sectiunea (SVG) --------
+  const svg = document.getElementById('svg');
+  const xs = d3range(0, 1000, 5);
+  function d3range(a,b,s){ const o=[]; for(let x=a;x<=b;x+=s) o.push(x); return o; }
+  const yEll = x => 470 + Math.pow((x-500)/500, 2)*60;                                 // elipsoidul (arc neted)
+  const yGeo = x => yEll(x) - 42 - 26*Math.sin(x/150) - 14*Math.sin(x/61 + 1);          // geoidul (ondulat, deasupra elipsoidului)
+  const yTop = x => { const sea = yGeo(x); if(x < 230) return sea + 55 - 0.12*(x-230)*0; return sea - (40 + 120*Math.exp(-Math.pow((x-640)/110,2)) + 70*Math.exp(-Math.pow((x-430)/70,2)) + 14*Math.sin(x/23)); };
+  const path = (f, a, b) => xs.filter(x => x >= (a||0) && x <= (b==null?1000:b)).map((x,i) => (i?'L':'M') + x + ' ' + f(x).toFixed(1)).join(' ');
+  const PX = 640;
+  function draw(t){
+    const kT = seg(t, 0.3, 3), kG = seg(t, 4, 7), kE = seg(t, 8, 11), kP = seg(t, 12, 14), kH = seg(t, 14, 16), kN = seg(t, 16, 18), kF = seg(t, 18.5, 20);
+    const clipW = v => 1000*v;
+    let h = `<defs>
+      <clipPath id="cT"><rect x="0" y="0" width="${clipW(kT)}" height="640"/></clipPath>
+      <clipPath id="cG"><rect x="0" y="0" width="${clipW(kG)}" height="640"/></clipPath>
+      <clipPath id="cE"><rect x="0" y="0" width="${clipW(kE)}" height="640"/></clipPath>
+      <marker id="ar" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="context-stroke"/></marker></defs>`;
+    // mare
+    h += `<g clip-path="url(#cT)"><path d="${path(yTop)} L1000 640 L0 640Z" fill="rgba(120,90,50,.45)"/><path d="${path(yTop)}" fill="none" stroke="#c9a46a" stroke-width="4"/></g>`;
+    h += `<path d="${path(yGeo, 0, 230)} ${xs.filter(x => x <= 230).reverse().map(x => 'L' + x + ' ' + yTop(x).toFixed(1)).join(' ')}Z" fill="rgba(40,120,240,.55)" clip-path="url(#cT)"/>`;
+    h += `<g clip-path="url(#cG)"><path d="${path(yGeo)}" fill="none" stroke="#5be39a" stroke-width="3.5" stroke-dasharray="${''}"/></g>`;
+    h += `<g clip-path="url(#cE)"><path d="${path(yEll)}" fill="none" stroke="#3fd0ff" stroke-width="3.5"/></g>`;
+    const lab = (x, y, c, txt, a, anchor) => `<text class="seclbl" x="${x}" y="${y}" fill="${c}" font-size="24" font-weight="700" opacity="${a}" text-anchor="${anchor||'start'}">${txt}</text>`;
+    h += lab(990, yTop(990) - 26, '#e8c48a', 'Suprafața topografică', kT, 'end');
+    h += lab(20, yGeo(20) - 16, '#5be39a', 'Geoidul', kG) + lab(300, yGeo(300) - 12, '#5be39a', 'geoidul continuă pe sub continent', kG*0.85).replace('font-size="24"', 'font-size="18"');
+    h += lab(20, yEll(20) + 38, '#3fd0ff', 'Elipsoidul de referință (GRS80 / Krasovski)', kE);
+    // punctul P si marimile
+    if(kP > 0){
+      const yt = yTop(PX), yg = yGeo(PX), ye = yEll(PX);
+      h += `<circle cx="${PX}" cy="${yt}" r="${9*kP}" fill="#fff"/>` + lab(PX + 16, yt - 12, '#fff', 'P', kP);
+      if(kH > 0) h += `<line x1="${PX-34}" y1="${yg}" x2="${PX-34}" y2="${yg + (yt-yg)*kH}" stroke="#5be39a" stroke-width="4" marker-end="url(#ar)"/>` + lab(PX - 46, (yt+yg)/2, '#5be39a', 'H', kH, 'end');
+      if(kN > 0) h += `<line x1="${PX-34}" y1="${ye}" x2="${PX-34}" y2="${ye + (yg-ye)*kN}" stroke="#ff9d3c" stroke-width="4" marker-end="url(#ar)"/>` + lab(PX - 46, (yg+ye)/2 + 8, '#ff9d3c', 'N', kN, 'end');
+      if(kP > 0.5) h += `<line x1="${PX+30}" y1="${ye}" x2="${PX+30}" y2="${ye + (yt-ye)*ease((kP-0.5)*2)}" stroke="#3fd0ff" stroke-width="4" marker-end="url(#ar)"/>` + lab(PX + 44, (yt+ye)/2, '#3fd0ff', 'h', kP);
+    }
+    if(kF > 0) h += `<g opacity="${kF}" transform="translate(20,20)"><rect width="560" height="150" rx="14" fill="rgba(12,20,38,.92)" stroke="rgba(140,170,220,.35)"/>
+      <text x="24" y="52" fill="#fff" font-size="34" font-weight="700" class="seclbl"><tspan fill="#3fd0ff">h</tspan> = <tspan fill="#5be39a">H</tspan> + <tspan fill="#ff9d3c">N</tspan></text>
+      <text x="200" y="40" fill="#b4c0d4" font-size="17" class="seclbl"><tspan fill="#3fd0ff">h</tspan> — înălțimea elipsoidală (GNSS)</text>
+      <text x="200" y="64" fill="#b4c0d4" font-size="17" class="seclbl"><tspan fill="#5be39a">H</tspan> — altitudinea (nivelment, MN75)</text>
+      <text x="200" y="88" fill="#b4c0d4" font-size="17" class="seclbl"><tspan fill="#ff9d3c">N</tspan> — ondulația geoidului (cvasigeoid: ζ)</text>
+      <text x="24" y="128" fill="#ffc940" font-size="17" class="seclbl">Ex. RomGEO, USAMV București: h = 120,00 m → H = 84,61 m ⇒ ζ = 35,39 m</text></g>`;
+    svg.innerHTML = h;
+  }
+  const clk = AnimUI.init({duration:26, loop:true, phases:[
+    {t:0,  text:'<b>Suprafața topografică</b> — terenul așa cum îl vedem și îl măsurăm: neregulată, imposibil de descris printr-o formulă.'},
+    {t:4,  text:'<b>Geoidul</b> — suprafața echipotențială a câmpului gravitațional care aproximează nivelul mediu al mărilor; firul cu plumb este perpendicular pe ea.'},
+    {t:8,  text:'<b>Elipsoidul</b> — suprafață matematică netedă, apropiată de geoid; pe el se fac calculele geodezice și proiecțiile cartografice.'},
+    {t:12, text:'Un punct P are <b>înălțimea elipsoidală h</b> (măsurată GNSS) și <b>altitudinea H</b> (față de geoid / nivelul mării).'},
+    {t:18, text:'Diferența dintre ele este <b>ondulația geoidului N</b>; în România este de circa 30–45 m. RomGEO aplică automat acest model.'}]});
+  let lt = -1;
+  function frame(){
+    const t = clk.update();
+    if(Math.abs(t - lt) > 0.02){ lt = t; draw(t); }
+    grp.rotation.y += clk.dt*0.25; oc.update(); ren.render(scene, cam);
+    requestAnimationFrame(frame);
+  }
+  frame();
+})();
+</script>
+</body></html>

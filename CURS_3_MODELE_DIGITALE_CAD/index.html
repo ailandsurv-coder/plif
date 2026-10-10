@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Curs interactiv</title>
+<style>
+:root{--bg:#050913;--panel:rgba(12,20,38,.92);--line:rgba(140,170,220,.28);--text:#f4f7fb;--muted:#b4c0d4;--cyan:#3fd0ff;--gold:#ffc940;--red:#ff6262;--green:#5be39a;--orange:#ff9d3c;
+  --font:"Segoe UI","Inter",system-ui,-apple-system,Roboto,Arial,sans-serif}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#000;color:var(--text);font-family:var(--font);overflow:hidden}
+#vp{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#000;overflow:hidden}
+#deck{position:relative;width:1920px;height:1080px;transform-origin:center center;flex:none;overflow:hidden;
+  background:radial-gradient(ellipse at 50% 35%,#0f1d3a 0%,#050913 72%)}
+.slide{position:absolute;inset:0;display:none}
+.slide.on{display:block}
+.slide iframe{position:absolute;inset:0;width:100%;height:100%;border:0;background:#050913}
+/* tipografie slide-uri statice */
+.s-pad{position:absolute;inset:70px 110px 110px}
+.kick{color:var(--cyan);font-size:26px;font-weight:700;letter-spacing:2px;text-transform:uppercase}
+h1{font-size:76px;margin:10px 0 0;line-height:1.08}
+h2{font-size:56px;margin:0 0 30px;line-height:1.1}
+p,li{font-size:31px;line-height:1.45;color:#e9eef7}
+li{margin:10px 0}
+b,strong{color:var(--gold)}
+.muted{color:var(--muted)}
+.cols{display:grid;grid-template-columns:1.25fr 1fr;gap:60px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:28px 32px}
+.card h3{margin:0 0 12px;font-size:36px}
+.tbl{border-collapse:collapse;width:100%;font-size:28px}
+.tbl td{padding:9px 12px;border-bottom:1px solid var(--line)}
+.tbl td:first-child{color:var(--muted)}
+.fix{border-left:5px solid var(--orange);background:rgba(255,157,60,.10);padding:14px 22px;border-radius:0 12px 12px 0;font-size:25px;line-height:1.4;color:#ffe6cc;margin-top:22px}
+.go{display:inline-block;margin-top:14px;background:var(--cyan);color:#04111f;font-weight:700;border-radius:10px;padding:10px 20px;font-size:24px;cursor:pointer;border:0;font-family:inherit}
+/* note de curs (sertar) */
+.notes{position:absolute;left:0;top:0;bottom:0;width:640px;background:rgba(6,11,22,.96);border-right:1px solid var(--line);padding:46px 44px 120px;
+  transform:translateX(-100%);transition:transform .35s ease;overflow-y:auto;z-index:20}
+.notes.open{transform:none}
+.notes h3{margin:0 0 18px;font-size:34px;color:var(--cyan)}
+.notes p,.notes li{font-size:25px;line-height:1.45}
+/* bara prezentarii */
+#nav{position:absolute;right:26px;bottom:22px;display:flex;gap:10px;align-items:center;z-index:30;opacity:.35;transition:opacity .3s}
+#nav:hover{opacity:1}
+#nav button{background:#16233f;color:#fff;border:1px solid var(--line);border-radius:10px;height:46px;min-width:46px;font-size:21px;cursor:pointer;font-family:inherit;padding:0 12px}
+#nav button:hover{border-color:var(--cyan)}
+#nav button.on{background:var(--cyan);color:#04111f}
+#num{font-size:20px;color:var(--muted);min-width:80px;text-align:center;font-variant-numeric:tabular-nums}
+#prog{position:absolute;left:0;bottom:0;height:5px;background:var(--cyan);z-index:30;transition:width .3s}
+/* titlu */
+.title-bg{position:absolute;inset:0;background:radial-gradient(circle at 78% 46%,rgba(63,208,255,.18),transparent 42%)}
+.orb{position:absolute;right:170px;top:230px;width:520px;height:520px;border-radius:50%;
+  background:radial-gradient(circle at 35% 30%,#7fd4ff 0%,#2560b8 35%,#0b2a5a 70%,#04122a 100%);box-shadow:0 0 120px rgba(63,160,255,.45)}
+.orb::after{content:"";position:absolute;inset:-2px;border-radius:50%;
+  background:repeating-linear-gradient(90deg,transparent 0 50px,rgba(255,255,255,.18) 50px 52px),repeating-linear-gradient(0deg,transparent 0 50px,rgba(255,255,255,.14) 50px 52px);
+  -webkit-mask:radial-gradient(circle,#000 69%,transparent 70%);mask:radial-gradient(circle,#000 69%,transparent 70%);animation:spin 40s linear infinite}
+@keyframes spin{to{background-position:520px 0,0 0}}
+/* slide-uri de text (din PPTX) */
+.tx{display:grid;gap:56px;align-items:start}
+.txt p,.txt li{font-size:30px;line-height:1.42}
+.txt ul{margin:6px 0 10px;padding-left:34px}
+.txt.dense p,.txt.dense li{font-size:24.5px;line-height:1.38;margin:7px 0}
+.txt.dense ul{margin:2px 0 6px}
+.vis{display:flex;flex-direction:column;gap:18px;align-items:stretch}
+.fig{margin:0;background:#fff;border-radius:12px;padding:8px;box-shadow:0 10px 30px rgba(0,0,0,.45);display:flex;flex-direction:column;align-items:center;justify-content:center}
+.fig img{max-width:100%;max-height:var(--mh,640px);object-fit:contain;border-radius:6px;display:block}
+.fig figcaption{color:#1d2a40;font-size:19px;padding:7px 6px 2px;text-align:center;line-height:1.3}
+.card .fig{background:transparent;box-shadow:none;padding:0;margin:4px 0}
+.card p.c{font-size:25px;line-height:1.4}
+.ret{border-left:5px solid var(--cyan);background:rgba(63,208,255,.09);padding:12px 20px;border-radius:0 12px 12px 0;font-size:23px;line-height:1.4;color:#d9f4ff;margin-top:16px}
+.biblio li{font-size:26px!important;word-break:break-word}
+.toc{columns:2;column-gap:60px;margin-top:10px}
+.toc div{font-size:27px;padding:8px 0;break-inside:avoid;cursor:pointer;border-bottom:1px solid var(--line)}
+.toc div:hover{color:var(--cyan)}
+.toc span{color:var(--cyan);font-weight:700;display:inline-block;width:52px}
+</style>
+</head><body>
+<div id="vp"><div id="deck"></div></div>
+<script src="curs.js"></script>
+<script>
+/* ===================== MOTOR PREZENTARE ===================== */
+const deck = document.getElementById('deck'); deck.tabIndex = -1; deck.style.outline = 'none';
+S.forEach((s, i) => {
+  const d = document.createElement('section'); d.className = 'slide'; d.dataset.i = i;
+  if(s.html) d.innerHTML = s.html;
+  d.querySelectorAll('iframe[data-src]').forEach(f => f.classList.add('deco'));
+  d.id = 's-' + s.id;
+  if(s.anim){ const f = document.createElement('iframe'); f.dataset.src = s.anim; f.setAttribute('allow', 'fullscreen'); d.appendChild(f); }
+  if(s.note){ const n = document.createElement('div'); n.className = 'notes'; n.innerHTML = s.note; d.appendChild(n); }
+  deck.appendChild(d);
+});
+// cuprins pe slide-ul de titlu
+const nav = document.createElement('div'); nav.id = 'nav';
+nav.innerHTML = `<button id="bN" title="Note de curs (N)">📄 Note</button><button id="bP" title="Înapoi (←)">◀</button><div id="num"></div><button id="bX" title="Înainte (→)">▶</button><button id="bF" title="Ecran complet (F)">⛶</button>`;
+deck.appendChild(nav);
+const prog = document.createElement('div'); prog.id = 'prog'; deck.appendChild(prog);
+const slides = [...deck.querySelectorAll('.slide')];
+let cur = -1;
+function show(i){
+  i = Math.max(0, Math.min(slides.length - 1, i)); if(i === cur) return;
+  // focusul nu trebuie să rămână într-un iframe care se descarcă (altfel tastele nu mai ajung la prezentare)
+  if(document.activeElement && document.activeElement.tagName === 'IFRAME') document.activeElement.blur();
+  deck.focus({preventScroll:true});
+  if(cur >= 0){ const o = slides[cur]; o.classList.remove('on'); o.querySelectorAll('iframe').forEach(f => { f.onload = null; f.removeAttribute('src'); }); }
+  cur = i; const s = slides[i]; s.classList.add('on');
+  s.querySelectorAll('iframe').forEach(f => { f.src = f.dataset.src; if(!f.classList.contains('deco')) f.onload = () => { if(slides[cur].contains(f) && f.getAttribute('src')) try{ f.contentWindow.focus(); }catch(e){} }; });
+  document.getElementById('num').textContent = (i+1) + ' / ' + slides.length;
+  prog.style.width = (100*(i+1)/slides.length) + '%';
+  document.getElementById('bN').style.display = s.querySelector('.notes') ? '' : 'none';
+  document.getElementById('bN').classList.toggle('on', !!s.querySelector('.notes.open'));
+  history.replaceState(null, '', '#' + (i+1));
+  document.title = S[i].t + ' — ' + (window.CURS ? CURS.titlu : 'Curs');
+}
+function notes(){ const n = slides[cur].querySelector('.notes'); if(n){ n.classList.toggle('open'); document.getElementById('bN').classList.toggle('on', n.classList.contains('open')); } }
+function fs(){ if(!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{}); else document.exitFullscreen(); }
+function key(k){
+  if(['ArrowRight','PageDown'].includes(k)) show(cur + 1);
+  else if(['ArrowLeft','PageUp'].includes(k)) show(cur - 1);
+  else if(k === 'Home') show(0); else if(k === 'End') show(slides.length - 1);
+  else if(k === 'f' || k === 'F') fs();
+  else if(k === 'n' || k === 'N') notes();
+}
+addEventListener('keydown', e => {
+  if(e.key === ' '){ const f = slides[cur].querySelector('iframe:not(.deco)'); if(f){ e.preventDefault(); f.contentWindow.postMessage({anim:'toggle'}, '*'); } else { e.preventDefault(); show(cur + 1); } return; }
+  key(e.key);
+});
+addEventListener('message', e => { if(e.data && e.data.deckKey) key(e.data.deckKey); });
+document.getElementById('bP').onclick = () => show(cur - 1);
+document.getElementById('bX').onclick = () => show(cur + 1);
+document.getElementById('bF').onclick = fs;
+document.getElementById('bN').onclick = notes;
+// pe telefon / tabletă: glisare stânga-dreapta între slide-uri (în animații atingerea rămâne a animației — evenimentele din iframe nu ajung aici)
+let tx = null, ty = 0;
+addEventListener('touchstart', e => { if(e.touches.length === 1){ tx = e.touches[0].clientX; ty = e.touches[0].clientY; } }, {passive: true});
+addEventListener('touchend', e => { if(tx === null) return; const dx = e.changedTouches[0].clientX - tx, dy = e.changedTouches[0].clientY - ty; tx = null;
+  if(Math.abs(dx) > 60 && Math.abs(dx) > 1.5*Math.abs(dy)) show(cur + (dx < 0 ? 1 : -1)); }, {passive: true});
+const byId = id => S.findIndex(x => x.id === id);
+deck.addEventListener('click', e => { const g = e.target.closest('[data-go]'); if(g) show(byId(g.dataset.go)); });
+// scalare 1920x1080 -> fereastra
+// dimensiunea reală a ferestrei (pe telefon, innerWidth poate raporta lățimea conținutului, nu a ecranului)
+function fit(){ const v = document.getElementById('vp'), W = v.clientWidth || innerWidth, H = v.clientHeight || innerHeight;
+  const k = Math.min(W/1920, H/1080); deck.style.transform = `scale(${k})`; }
+addEventListener('resize', fit); fit();
+show(Math.max(0, (parseInt(location.hash.slice(1)) || 1) - 1));
+addEventListener('hashchange', () => show((parseInt(location.hash.slice(1)) || 1) - 1));
+</script>
+</body></html>

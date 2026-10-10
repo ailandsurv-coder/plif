@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fluxul de lucru în CAD</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/d3.min.js"></script><script src="../lib/anim-ui.js"></script><script src="../lib/teren.js"></script>
+<style>
+  #win{position:absolute;left:24px;right:24px;top:92px;bottom:168px;background:#1e2229;border:1px solid #3a4150;border-radius:8px;overflow:hidden;font-family:Segoe UI,Arial,sans-serif}
+  #rib{position:absolute;left:0;right:0;top:0;height:70px;background:#2b303b;border-bottom:1px solid #3a4150;display:flex;gap:4px;padding:20px 10px 6px;align-items:stretch}
+  #rib .tab{color:#9aa4b8;font-size:12px;position:absolute;left:12px;top:2px}
+  #rib .b{background:#353b48;border:1px solid #4a5263;border-radius:6px;color:#e6e9ef;font-size:clamp(10px,.8vw,13px);padding:8px 10px 4px;min-width:96px;text-align:center;line-height:1.15;transition:all .2s}
+  #rib .b.on{background:#1f6fb2;border-color:#3fd0ff;color:#fff}
+  #ms{position:absolute;left:0;right:0;top:71px;bottom:96px}
+  #ms svg{width:100%;height:100%}
+  #cmd{position:absolute;left:0;right:0;bottom:0;height:96px;background:#16191f;border-top:1px solid #3a4150;font-family:Consolas,monospace;font-size:clamp(11px,.85vw,14px);color:#cfd6e2;padding:6px 10px;line-height:1.5;overflow:hidden}
+  #file{position:absolute;right:16px;top:80px;width:300px;background:#f5f5f2;color:#111;font-family:Consolas,monospace;font-size:12px;border-radius:6px;padding:8px;box-shadow:0 8px 24px rgba(0,0,0,.5);display:none;white-space:pre}
+  #cur{position:absolute;width:20px;height:20px;pointer-events:none;z-index:9}
+</style>
+</head><body>
+<div class="a-title">Fluxul de lucru într-un program CAD cu extensie de topografie<small>De la fișierul de puncte la profilul canalului — simulare ilustrativă (AutoCAD / BricsCAD + TopoLT, ProfLT, Civil 3D etc.)</small></div>
+<div id="win">
+  <div id="rib"><span class="tab">Extensie topografie</span></div>
+  <div id="ms"><svg id="sv" viewBox="0 0 1500 560"></svg></div>
+  <div id="cmd"></div>
+  <div id="file"></div>
+  <svg id="cur" viewBox="0 0 24 24"><path d="M3 2l7 19 2.6-7.4L20 11z" fill="#fff" stroke="#000" stroke-width="1.4"/></svg>
+</div>
+<script>
+(function(){
+  const {seg, lerp, ease} = AnimUI, T = window.TEREN, sv = document.getElementById('sv');
+  const BTN = ['Import puncte', 'Triangulație TIN', 'Curbe de nivel', 'Axă + pichetare', 'Profil longitudinal', 'Profile transversale', 'Volume'];
+  const rib = document.getElementById('rib');
+  BTN.forEach(b => { const d = document.createElement('div'); d.className = 'b'; d.textContent = b; rib.appendChild(d); });
+  // zona: x 40..500, y 0..270 (m) -> plan in stanga
+  const X0 = 40, X1 = 500, Y0 = 0, Y1 = 270, sc = 1.55, ox = 30, oy = 20, mx = x => ox + (x - X0)*sc, my = y => oy + (Y1 - y)*sc;
+  const P = []; for(let i=0;i<520;i++){ const x = X0 + T.rnd()*(X1 - X0), y = Y0 + T.rnd()*(Y1 - Y0); P.push({x, y, z:T.ground(x, y), n:100 + i}); }
+  const del = d3.Delaunay.from(P, p => p.x, p => p.y), tri = del.triangles;
+  const G = 3, nx = Math.round((X1-X0)/G) + 1, ny = Math.round((Y1-Y0)/G) + 1, vals = new Float64Array(nx*ny);
+  for(let j=0;j<ny;j++) for(let i=0;i<nx;i++) vals[j*nx+i] = T.ground(X0 + i*G, Y1 - j*G);
+  const cont = d3.contours().size([nx, ny]).thresholds(d3.range(Math.ceil(d3.min(vals)*2)/2, d3.max(vals), 0.5))(Array.from(vals));
+  const cpath = d3.geoPath(d3.geoTransform({point(x, y){ this.stream.point(ox + x*G*sc, oy + y*G*sc); }}));
+  const AX = [[90, 20], [210, 95], [330, 150], [430, 200]];
+  const S = []; let L = 0; for(let i=1;i<AX.length;i++){ const [a,b] = AX[i-1], [c,d] = AX[i], dd = Math.hypot(c-a, d-b), n = Math.ceil(dd/2); for(let k=(i===1?0:1);k<=n;k++){ const f = k/n; S.push({s:L + dd*f, x:a + (c-a)*f, y:b + (d-b)*f}); } L += dd; }
+  S.forEach(p => p.z = T.ground(p.x, p.y));
+  const ZD = []; S.forEach((p, i) => ZD.push(i === 0 ? p.z - 1.2 : Math.min(ZD[i-1] - 0.002, p.z - 1.2)));
+  const FILE = 'Nr,X (Nord),Y (Est),Z\n' + P.slice(0, 9).map(p => `${p.n},${(380000 + p.y).toFixed(3)},${(650000 + p.x).toFixed(3)},${p.z.toFixed(3)}`).join('\n') + '\n…';
+  const STEPS = [
+    {t:0.5, b:0, cmd:['Comandă: IMPORT PUNCTE', 'Fișier: ridicare_CD1.csv · format: Nr, X (Nord), Y (Est), Z · sistem Stereo 70', '520 de puncte importate · straturi: PUNCTE, NUMERE, COTE']},
+    {t:5.5, b:1, cmd:['Comandă: TRIANGULAȚIE', 'Selectați punctele: 520 găsite · linii de frângere: taluzurile canalului', `${tri.length/3} de triunghiuri create`]},
+    {t:10, b:2, cmd:['Comandă: CURBE DE NIVEL', 'Echidistanța: 0,50 m · curbe principale: 2,50 m · netezire: da', `${cont.length} niveluri generate · cotare automată pe curbele principale`]},
+    {t:15, b:3, cmd:['Comandă: AXĂ', 'Selectați polilinia axei canalului CD-1 · pichetare la 50 m', `Lungime axă: ${L.toFixed(2).replace('.',',')} m · ${Math.floor(L/50) + 2} pichete`]},
+    {t:20, b:4, cmd:['Comandă: PROFIL LONGITUDINAL', 'Sursa cotelor: modelul TIN · scara L 1:2000, H 1:100', 'Punctul de inserție al profilului… profil desenat; linia proiectată se editează direct pe profil']},
+    {t:26, b:5, cmd:['Comandă: PROFILE TRANSVERSALE', 'Lățime de bandă ±10 m · la fiecare pichet · secțiunea tip: b = 1,00 m, taluz 1:1,5', 'Profile desenate și arii calculate']},
+    {t:31, b:6, cmd:['Comandă: VOLUME', 'Metoda secțiunilor medii', 'Raport: volum săpătură / umplutură exportat în tabel']}];
+  const cmdEl = document.getElementById('cmd'), file = document.getElementById('file'), cur = document.getElementById('cur'), win = document.getElementById('win');
+  function plan(t){
+    let h = `<rect x="0" y="0" width="1500" height="560" fill="#1e2229"/>`;
+    for(let x=0;x<1500;x+=50) h += `<line x1="${x}" y1="0" x2="${x}" y2="560" stroke="#262b33"/>`; for(let y=0;y<560;y+=50) h += `<line x1="0" y1="${y}" x2="1500" y2="${y}" stroke="#262b33"/>`;
+    const kP = seg(t, 1.5, 4.5, x=>x), kT = seg(t, 6, 9.5, x=>x), kC = seg(t, 10.5, 14), kA = seg(t, 15.5, 18.5);
+    if(kT > 0){ const nT = Math.floor(tri.length/3*kT); for(let i=0;i<nT;i++){ const a = P[tri[3*i]], b = P[tri[3*i+1]], c = P[tri[3*i+2]];
+      h += `<polygon points="${mx(a.x)},${my(a.y)} ${mx(b.x)},${my(b.y)} ${mx(c.x)},${my(c.y)}" fill="none" stroke="#3a7f5a" stroke-width="0.7" opacity="${1 - 0.6*kC}"/>`; } }
+    if(kC > 0) cont.forEach(c => { const maj = Math.abs(c.value/2.5 - Math.round(c.value/2.5)) < 1e-6; h += `<path d="${cpath(c)}" fill="none" stroke="${maj ? '#ff7f50' : '#c89a5a'}" stroke-width="${maj ? 1.6 : 0.8}" opacity="${kC}"/>`; });
+    const nP = Math.floor(P.length*kP);
+    for(let i=0;i<nP;i++){ const p = P[i]; h += `<path d="M${mx(p.x)-2.5} ${my(p.y)} h5 M${mx(p.x)} ${my(p.y)-2.5} v5" stroke="#ffffff" stroke-width="1"/>`;
+      if(kC < 0.5 && i % 4 === 0) h += `<text x="${mx(p.x)+3}" y="${my(p.y)-3}" fill="#e8e070" font-size="8">${p.z.toFixed(2)}</text>`; }
+    if(kA > 0){ const m = Math.max(2, Math.floor(S.length*kA)); h += `<path d="${S.slice(0, m).map((p,i) => (i?'L':'M') + mx(p.x) + ' ' + my(p.y)).join(' ')}" fill="none" stroke="#ff3030" stroke-width="2.5"/>`;
+      if(kA >= 1) for(let s=0; s<=L; s+=50){ const p = S.reduce((a, b) => Math.abs(b.s - s) < Math.abs(a.s - s) ? b : a); h += `<circle cx="${mx(p.x)}" cy="${my(p.y)}" r="4" fill="#ff3030"/><text x="${mx(p.x)+6}" y="${my(p.y)+14}" fill="#ff8080" font-size="11">${(s/1000).toFixed(3).replace('.','+')}</text>`; } }
+    // profilul longitudinal in dreapta
+    const kL = seg(t, 20.5, 24.5), kX = seg(t, 26.5, 30), kV = seg(t, 31.5, 34);
+    if(kL > 0){ const px0 = 790, px1 = 1460, py0 = 40, py1 = 250, zlo = Math.floor(Math.min(...ZD) - 1), zhi = Math.ceil(Math.max(...S.map(p => p.z)) + 1);
+      const X = s => px0 + s/L*(px1 - px0), Y = z => py1 - (z - zlo)/(zhi - zlo)*(py1 - py0);
+      h += `<rect x="${px0-50}" y="${py0-26}" width="${px1-px0+70}" height="${py1-py0+90}" fill="none" stroke="#555d6e"/><text x="${px0-40}" y="${py0-8}" fill="#e6e9ef" font-size="14">PROFIL LONGITUDINAL CD-1</text>`;
+      for(let z=zlo; z<=zhi; z+=2) h += `<line x1="${px0}" y1="${Y(z)}" x2="${px1}" y2="${Y(z)}" stroke="#2f3540"/><text x="${px0-6}" y="${Y(z)+4}" fill="#9aa4b8" font-size="10" text-anchor="end">${z}</text>`;
+      const m = Math.max(2, Math.floor(S.length*kL));
+      h += `<path d="${S.slice(0, m).map((p,i) => (i?'L':'M') + X(p.s) + ' ' + Y(p.z)).join(' ')}" fill="none" stroke="#ffffff" stroke-width="1.6"/>`;
+      h += `<path d="${S.slice(0, m).map((p,i) => (i?'L':'M') + X(p.s) + ' ' + Y(ZD[i])).join(' ')}" fill="none" stroke="#ff3030" stroke-width="1.8"/>`;
+      for(let r=0;r<3;r++) h += `<rect x="${px0-50}" y="${py1 + 6 + r*18}" width="${px1-px0+70}" height="18" fill="none" stroke="#555d6e"/>`;
+      ['Cote teren','Cote proiect','Distanțe'].forEach((r, i) => h += `<text x="${px0-46}" y="${py1 + 19 + i*18}" fill="#9aa4b8" font-size="10">${r}</text>`); }
+    if(kX > 0){ for(let i=0;i<Math.floor(8*kX);i++){ const bx = 790 + (i%4)*170, by = 360 + Math.floor(i/4)*90;
+      h += `<rect x="${bx}" y="${by}" width="150" height="76" fill="none" stroke="#555d6e"/><path d="M${bx+8} ${by+30 + Math.sin(i)*4} L${bx+142} ${by+28 + Math.cos(i)*4}" stroke="#fff" stroke-width="1.2"/>
+        <polygon points="${bx+52},${by+30} ${bx+68},${by+58} ${bx+82},${by+58} ${bx+98},${by+29}" fill="rgba(255,48,48,.25)" stroke="#ff3030" stroke-width="1.4"/><text x="${bx+6}" y="${by+72}" fill="#9aa4b8" font-size="10">km ${(i*50/1000).toFixed(3).replace('.','+')}</text>`; } }
+    if(kV > 0) h += `<g opacity="${kV}"><rect x="40" y="440" width="420" height="96" fill="#2b303b" stroke="#3fd0ff"/><text x="54" y="468" fill="#fff" font-size="15" font-weight="700">Raport volume — CD-1</text>
+      <text x="54" y="494" fill="#cfd6e2" font-size="14" font-family="Consolas">Săpătură : 1 703,1 m³</text><text x="54" y="518" fill="#cfd6e2" font-size="14" font-family="Consolas">Umplutură:     0,0 m³  (pământul se depozitează pe dig)</text></g>`;
+    return h;
+  }
+  // pozitia cursorului: butonul curent
+  const btnPos = i => { const b = rib.children[i + 1].getBoundingClientRect(), w = win.getBoundingClientRect(); return [b.left - w.left + b.width/2, b.top - w.top + b.height/2]; };
+  const clk = AnimUI.init({duration:37, loop:true, phases:[
+    {t:0, text:'Punctele măsurate (stație totală, GNSS, nor de puncte filtrat) se importă dintr-un fișier text: <b>număr, X, Y, Z</b>.'},
+    {t:5.5, text:'Programul unește punctele în <b>triunghiuri</b> — modelul digital al terenului; liniile de frângere (taluzuri, muchii) se respectă.'},
+    {t:10, text:'<b>Curbele de nivel</b> se generează automat din TIN, la echidistanța aleasă, și se cotează.'},
+    {t:15, text:'Se desenează <b>axa</b> canalului și se pichetează (aici la 50 m).'},
+    {t:20, text:'Extensia de profile extrage cotele din TIN și desenează <b>profilul longitudinal</b>; linia proiectată se trasează pe profil.'},
+    {t:26, text:'La fiecare pichet: <b>profile transversale</b> cu secțiunea tip a canalului.'},
+    {t:31, text:'Din ariile secțiunilor rezultă <b>volumele</b> de săpătură și umplutură — gata pentru antemăsurătoare.'}]});
+  let lastStep = -1;
+  (function frame(){
+    const t = clk.update(); let st = 0; STEPS.forEach((s, i) => { if(t >= s.t) st = i; });
+    if(st !== lastStep){ lastStep = st; [...rib.children].slice(1).forEach((b, i) => b.classList.toggle('on', i === STEPS[st].b)); }
+    const s = STEPS[st], lines = []; STEPS.slice(0, st).forEach(q => lines.push(q.cmd[0] + ' — gata'));
+    const nl = Math.floor(seg(t, s.t, s.t + 3, x=>x)*s.cmd.length + 0.5); s.cmd.slice(0, Math.max(1, nl)).forEach(c => lines.push(c));
+    cmdEl.innerHTML = lines.slice(-4).map((l, i, a) => i === a.length - 1 ? `<span style="color:#fff">${l}</span><span style="opacity:${(t*2)%1 < .5 ? 1 : 0}">▌</span>` : l).join('<br>');
+    file.style.display = t > 0.8 && t < 5 ? 'block' : 'none'; file.textContent = FILE;
+    const [cx, cy] = btnPos(STEPS[st].b), prev = st > 0 ? btnPos(STEPS[st-1].b) : [cx, cy + 200], k = seg(t, s.t - 0.6, s.t);
+    cur.style.left = lerp(prev[0], cx, k) + 'px'; cur.style.top = lerp(prev[1], cy, k) + 'px';
+    sv.innerHTML = plan(t);
+    requestAnimationFrame(frame);
+  })();
+})();
+</script>
+</body></html>

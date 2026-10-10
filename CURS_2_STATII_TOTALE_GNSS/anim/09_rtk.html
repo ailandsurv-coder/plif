@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Poziționarea GNSS cu corecții</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/world-data.js"></script><script src="../lib/anim-ui.js"></script>
+<style>
+  #sv{position:absolute;left:0;top:92px;width:62%;height:calc(100vh - 250px)}
+  #side{right:20px;top:215px;width:calc(38% - 30px);bottom:160px;overflow:hidden;font-size:clamp(13px,1.15vw,20px)}
+  #side .tt{font-size:1.4em;font-weight:700;margin:2px 0 8px}
+  #side .f{font-family:Consolas,monospace;background:rgba(0,0,0,.28);border-radius:8px;padding:8px 10px;margin:6px 0;line-height:1.5;font-size:.92em}
+  /* controlerul */
+  #ctl{position:absolute;right:20px;top:215px;width:min(400px,34vw);bottom:150px;background:#0e1626;border:3px solid #2c3a52;border-radius:26px;padding:14px;display:none;flex-direction:column;gap:8px;font-family:"Segoe UI",Arial,sans-serif;font-size:clamp(12px,.95vw,16px);box-shadow:0 20px 50px rgba(0,0,0,.6)}
+  #ctl .bar{display:flex;justify-content:space-between;align-items:center;background:#16233f;border-radius:10px;padding:6px 10px}
+  #ctl .st{font-weight:800;padding:4px 10px;border-radius:8px;letter-spacing:.5px}
+  #ctl .grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px;background:#16233f;border-radius:10px;padding:8px 10px;font-variant-numeric:tabular-nums}
+  #ctl .grid b{color:#fff}
+  #ctl input{width:100%;background:#0b1220;border:1px solid #2f4566;color:#cfe;border-radius:6px;padding:4px 6px;font-size:inherit}
+  #ctl .log{background:#060b14;border-radius:8px;padding:6px 8px;font-family:Consolas,monospace;font-size:.85em;color:#9fdcff;flex:1;overflow:hidden;line-height:1.45}
+  #ctl .btns{display:flex;gap:6px}
+  #ctl .btns button{flex:1;background:#1b2a46;color:#fff;border:1px solid #3fd0ff;border-radius:8px;padding:8px 4px;font-size:inherit;cursor:pointer;font-family:inherit}
+  #ctl .btns button:hover{background:#25406b}
+  #ctl .prog{height:8px;background:#1b2a46;border-radius:4px;overflow:hidden}#ctl .prog i{display:block;height:100%;background:#5be39a;width:0}
+</style>
+</head><body>
+<div class="a-title">Poziționarea GNSS și preluarea corecțiilor<small>Pseudodistanțe → erori → corecții diferențiale (DGNSS) și RTK prin rețeaua ROMPOS → lucrul cu controlerul</small></div>
+<div class="opts"><button data-s="0" class="on">1 · Trilaterația</button><button data-s="1">2 · Erori și corecții</button><button data-s="2">3 · Rețeaua ROMPOS</button><button data-s="3">4 · Controlerul RTK</button></div>
+<svg id="sv" viewBox="0 0 1000 680"></svg>
+<div class="a-panel" id="side"></div>
+<div id="ctl">
+  <div class="bar"><span>📡 <b id="cSat">0</b> sateliți</span><span class="st" id="cSt">—</span><span>🔋 87%</span></div>
+  <div style="background:#16233f;border-radius:10px;padding:8px 10px">
+    <div style="color:#8fb3e0;font-weight:700;margin-bottom:4px">Conexiune NTRIP</div>
+    <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 8px;align-items:center">
+      <span>Caster</span><input value="ROMPOS — rompos.ro" readonly><span>Mountpoint</span><input id="cMp" value="VRS · RTCM 3.x" readonly><span>Utilizator</span><input value="••••••••" readonly></div></div>
+  <div class="grid"><span>HRMS</span><b id="cH">—</b><span>VRMS</span><b id="cV">—</b><span>PDOP</span><b id="cP">—</b><span>Vârsta corecții</span><b id="cA">—</b>
+    <span style="grid-column:span 2;color:#8fb3e0" id="cSys">—</span></div>
+  <div class="log" id="cLog"></div>
+  <div class="prog"><i id="cProg"></i></div>
+  <div class="btns"><button id="bCon">Conectare</button><button id="bMes">Măsoară punct</button><button id="bTree">Sub copaci</button></div>
+</div>
+<script>
+(function(){
+  const {seg, lerp, ease} = AnimUI, sv = document.getElementById('sv'), side = document.getElementById('side'), ctl = document.getElementById('ctl');
+  let seed = 3; const rnd = () => (seed = (seed*16807) % 2147483647)/2147483647, gauss = () => { let u = 0; for(let i=0;i<6;i++) u += rnd(); return (u - 3)/Math.sqrt(0.5); };
+
+  // ================= ACT 1: trilateratia cu pseudodistante =================
+  const RX = {x:500, y:560}, SAT = [{x:150,y:120},{x:420,y:70},{x:690,y:90},{x:900,y:170}], BIAS = 46;
+  const dist = (a,b) => Math.hypot(a.x-b.x, a.y-b.y);
+  function act1(f){
+    let h = `<path d="M 0 640 Q 500 520 1000 640 L 1000 680 L 0 680 Z" fill="#1d4a2e"/><path d="M 0 640 Q 500 520 1000 640" stroke="#5be39a" fill="none" stroke-width="2"/>`;
+    const kW = seg(f, 0.02, 0.3, x=>x), kB = seg(f, 0.35, 0.45), k4 = seg(f, 0.5, 0.6), kS = seg(f, 0.65, 0.82);
+    SAT.forEach((s, i) => { const show = i < 3 || k4 > 0; if(!show) return; const op = i === 3 ? k4 : 1, r = dist(s, RX), rr = r + BIAS*(1 - kS)*(kB > 0 ? 1 : 0);
+      if(kW < 1){ const w = (kW*1.1*r) % (r*1.05); h += `<circle cx="${s.x}" cy="${s.y}" r="${w}" fill="none" stroke="#4aa3ff" stroke-width="1.5" opacity="${0.6*op}"/>`; }
+      if(kW > 0.6) h += `<circle cx="${s.x}" cy="${s.y}" r="${rr}" fill="none" stroke="${['#4aa3ff','#ffd84a','#ff9a2e','#ff4d5e'][i]}" stroke-width="2.2" opacity="${0.85*op}"/>`;
+      h += `<g transform="translate(${s.x},${s.y})" opacity="${op}"><rect x="-16" y="-8" width="32" height="16" fill="#9fb4d0"/><rect x="-46" y="-6" width="26" height="12" fill="#3a6ab0"/><rect x="20" y="-6" width="26" height="12" fill="#3a6ab0"/><text y="-16" fill="#fff" font-size="16" text-anchor="middle">S${i+1}</text></g>`; });
+    // zona de incertitudine (ceas)
+    if(kB > 0 && kS < 1) h += `<ellipse cx="${RX.x}" cy="${RX.y - 30}" rx="${60*(1-kS)}" ry="${36*(1-kS)}" fill="rgba(255,98,98,.18)" stroke="#ff6262" stroke-dasharray="5 4"/>`;
+    h += `<g transform="translate(${RX.x},${RX.y})"><line y1="0" y2="-40" stroke="#ddd" stroke-width="4"/><ellipse cy="-44" rx="18" ry="7" fill="#ddd"/><circle r="5" fill="${kS >= 1 ? '#5be39a' : '#fff'}"/></g>`;
+    if(kS >= 1) h += `<text x="${RX.x + 24}" y="${RX.y - 50}" fill="#5be39a" font-size="20" font-weight="700">poziția (X, Y, Z) + eroarea de ceas δt</text>`;
+    return h;
+  }
+  // ================= ACT 2: buget de erori =================
+  const ERR = [['Ionosferă', 4.0, '#c38bff'], ['Troposferă', 0.5, '#3fd0ff'], ['Orbite și ceasuri', 1.5, '#ffd84a'], ['Multipath (reflexii)', 0.8, '#ff9a2e'], ['Zgomotul receptorului', 0.3, '#9aa6b8']];
+  const MODES = [{n:'Autonom (cod)', f:[1,1,1,1,1], tot:'≈ 3–5 m'}, {n:'DGNSS (corecții de cod)', f:[0.08,0.1,0.06,1,1], tot:'≈ 0,3–1 m'}, {n:'RTK (faza purtătoarei)', f:[0.003,0.004,0.002,0.006,0.01], tot:'≈ 1–2 cm'}];
+  function act2(f){
+    const m = Math.min(2, Math.floor(f*3)), fm = f*3 - m, kk = m === 0 ? 0 : seg(fm, 0, 0.35);
+    let h = `<text x="40" y="60" fill="#fff" font-size="26" font-weight="700">Erorile unei măsurători GNSS (ordin de mărime)</text>`;
+    MODES.forEach((M, i) => h += `<rect x="${40 + i*310}" y="86" width="296" height="44" rx="10" fill="${i === m ? '#3fd0ff' : 'rgba(255,255,255,.06)'}" stroke="rgba(140,170,220,.35)"/><text x="${188 + i*310}" y="115" fill="${i === m ? '#04111f' : '#cfd8e6'}" font-size="18" font-weight="700" text-anchor="middle">${M.n}</text>`);
+    const sc = 120;
+    ERR.forEach(([n, v, c], i) => { const prev = m === 0 ? 1 : MODES[m-1].f[i], cur = MODES[m].f[i], k = lerp(prev, cur, kk), w = v*k*sc, y = 170 + i*80;
+      h += `<text x="40" y="${y + 30}" fill="#e8eef8" font-size="20">${n}</text><rect x="290" y="${y + 8}" width="${Math.max(2, w)}" height="34" rx="6" fill="${c}"/>
+        <text x="${300 + Math.max(2, w)}" y="${y + 32}" fill="#fff" font-size="18">${(v*k) >= 0.1 ? (v*k).toFixed(1).replace('.',',') + ' m' : ((v*k)*100).toFixed(1).replace('.',',') + ' cm'}</text>`; });
+    h += `<text x="40" y="600" fill="#ffc940" font-size="26" font-weight="700">Precizie tipică: ${MODES[m].tot}</text>
+      <text x="40" y="636" fill="#b4c0d4" font-size="17">${m === 0 ? 'Geometria sateliților (DOP) amplifică erorile.' : m === 1 ? 'Erorile comune bazei și roverului (orbite, ceasuri, atmosferă) se anulează prin diferențiere.' : 'Faza undei purtătoare (λ ≈ 19 cm) + rezolvarea ambiguităților; rămân doar câțiva cm + 1 ppm.'}</text>`;
+    return h;
+  }
+  // ================= ACT 3: reteaua ROMPOS =================
+  const ring = (ROMANIA.type === 'Polygon' ? [ROMANIA.coordinates] : ROMANIA.coordinates).map(p => p[0]).sort((a,b)=>b.length-a.length)[0];
+  const MP = (lon, lat) => [500 + (lon - 25)*0.7*95, 360 - (lat - 45.95)*95];
+  const ST = [[46.07,23.58],[46.18,21.31],[44.86,24.87],[46.57,26.91],[47.05,21.92],[47.13,24.49],[47.75,26.67],[45.65,25.60],[45.27,27.96],[44.43,26.10],[45.15,26.82],[45.30,21.89],[44.20,27.33],[46.77,23.62],
+    [44.17,28.63],[45.86,25.79],[44.93,25.46],[44.33,23.79],[45.44,28.05],[43.90,25.97],[45.04,23.27],[46.36,25.80],[45.88,22.91],[44.56,27.37],[47.16,27.59],[44.57,25.95],[47.66,23.58],[44.64,22.66],
+    [46.54,24.56],[46.93,26.37],[44.43,24.36],[44.94,26.03],[47.79,22.89],[47.19,23.06],[45.80,24.15],[47.65,26.26],[43.97,25.33],[45.75,21.23],[45.18,28.80],[46.64,27.73],[45.10,24.37],[45.70,27.18]];
+  const ROV = [27.02, 44.62], near = ST.map(s => ({s, d:Math.hypot((s[1]-ROV[0])*0.71, s[0]-ROV[1])})).sort((a,b) => a.d - b.d).slice(0,3).map(o => o.s);
+  function act3(f){
+    let h = `<path d="${ring.map((p,i) => (i?'L':'M') + MP(p[0],p[1]).map(v=>v.toFixed(1)).join(' ')).join(' ')}Z" fill="rgba(255,201,64,.07)" stroke="#ffc940" stroke-width="2"/>`;
+    const k1 = seg(f, 0, 0.2, x=>x), k2 = seg(f, 0.25, 0.45), k3 = seg(f, 0.5, 0.7), k4 = seg(f, 0.72, 0.9);
+    const cc = MP(26.10, 44.43);
+    ST.forEach((s, i) => { if(i/ST.length > k1) return; const p = MP(s[1], s[0]);
+      if(k2 > 0) h += `<line x1="${p[0]}" y1="${p[1]}" x2="${lerp(p[0], cc[0], k2)}" y2="${lerp(p[1], cc[1], k2)}" stroke="#3fd0ff" stroke-width="1" opacity=".45"/>`;
+      h += `<path d="M ${p[0]} ${p[1]-9} l 7 12 l -14 0 z" fill="#3fd0ff"/>`; });
+    h += `<rect x="${cc[0]-60}" y="${cc[1]+12}" width="120" height="34" rx="6" fill="#16233f" stroke="#3fd0ff"/><text x="${cc[0]}" y="${cc[1]+34}" fill="#fff" font-size="14" text-anchor="middle">centrul ROMPOS</text>`;
+    // rover si VRS
+    const r = MP(ROV[0], ROV[1]), v = [r[0] - 26, r[1] - 18];
+    if(k3 > 0){ near.forEach(s => { const p = MP(s[1], s[0]); h += `<line x1="${p[0]}" y1="${p[1]}" x2="${v[0]}" y2="${v[1]}" stroke="#5be39a" stroke-width="2" stroke-dasharray="6 4" opacity="${k3}"/>`; });
+      h += `<circle cx="${v[0]}" cy="${v[1]}" r="${10*k3}" fill="none" stroke="#5be39a" stroke-width="3"/><text x="${v[0]-14}" y="${v[1]-16}" fill="#5be39a" font-size="17" font-weight="700" text-anchor="end" opacity="${k3}">stație virtuală (VRS)</text>`; }
+    h += `<g transform="translate(${r[0]},${r[1]})"><line y2="-26" stroke="#ddd" stroke-width="4"/><ellipse cy="-28" rx="12" ry="5" fill="#ffc940"/></g><text x="${r[0]+14}" y="${r[1]+6}" fill="#ffc940" font-size="17" font-weight="700">rover</text>`;
+    if(k4 > 0){ const q = (f*4) % 1; h += `<path d="M ${cc[0]} ${cc[1]+46} Q ${(cc[0]+r[0])/2} ${cc[1]+150} ${r[0]} ${r[1]+8}" fill="none" stroke="#ff9d3c" stroke-width="2.5" stroke-dasharray="8 6" opacity="${k4}"/>
+        <text x="${(cc[0]+r[0])/2 - 40}" y="${cc[1]+150}" fill="#ff9d3c" font-size="16" opacity="${k4}">NTRIP · internet mobil · RTCM 3.x</text>`; }
+    h += `<text x="40" y="640" fill="#b4c0d4" font-size="15">ROMPOS: 74 de stații permanente GNSS (amplasare schematică pe hartă) · servicii DGNSS și RTK (VRS, FKP, MAC, bază unică)</text>`;
+    return h;
+  }
+  // ================= ACT 4: controlerul =================
+  const ST4 = [
+    {t:0,  s:'AUTONOM', c:'#9aa6b8', sig:2.6, H:'2,61 m', V:'4,30 m', A:'—', sat:'GPS 9 · GLO 7 · GAL 8 · BDS 7'},
+    {t:3.5,s:'DGNSS',   c:'#ff9d3c', sig:0.45, H:'0,42 m', V:'0,77 m', A:'1 s', sat:'GPS 9 · GLO 7 · GAL 8 · BDS 7'},
+    {t:7,  s:'RTK FLOAT', c:'#ffd84a', sig:0.12, H:'0,118 m', V:'0,196 m', A:'1 s', sat:'GPS 9 · GLO 7 · GAL 8 · BDS 7'},
+    {t:10, s:'RTK FIX', c:'#5be39a', sig:0.010, H:'0,009 m', V:'0,016 m', A:'1 s', sat:'GPS 9 · GLO 7 · GAL 8 · BDS 7'},
+    {t:21, s:'RTK FLOAT', c:'#ffd84a', sig:0.15, H:'0,151 m', V:'0,263 m', A:'2 s', sat:'GPS 5 · GLO 3 · GAL 4 · BDS 2'},
+    {t:25, s:'RTK FIX', c:'#5be39a', sig:0.011, H:'0,010 m', V:'0,018 m', A:'1 s', sat:'GPS 9 · GLO 7 · GAL 8 · BDS 7'}];
+  const LOG = [[0.2,'Receptor pornit · poziție autonomă'],[1.6,'Conectare la caster NTRIP…'],[2.4,'Mountpoint VRS · autentificare OK'],[2.9,'Trimit poziția aproximativă (NMEA GGA)'],
+    [3.4,'Primesc corecții RTCM 3.x de la VRS'],[7,'Rezolv ambiguitățile fazei…'],[10,'<span style="color:#5be39a">FIX obținut — precizie centimetrică</span>'],
+    [13,'Măsurare punct 101 · 5 epoci…'],[16.5,'<span style="color:#5be39a">Punct 101 salvat</span>'],[21,'<span style="color:#ffd84a">Sub coronament: semnale pierdute → FLOAT</span>'],[25,'<span style="color:#5be39a">Zonă liberă: FIX recâștigat</span>']];
+  const pts = [];
+  function act4(t, dt){
+    let cur = ST4[0]; ST4.forEach(s => { if(t >= s.t) cur = s; });
+    // norul de pozitii
+    if(dt > 0 || pts.length < 40){ for(let i=0;i<2;i++) pts.push({x:gauss()*cur.sig, y:gauss()*cur.sig, c:cur.c}); while(pts.length > 90) pts.shift(); }
+    const scale = cur.sig > 1 ? 10 : cur.sig > 0.3 ? 2 : cur.sig > 0.05 ? 0.5 : 0.05;   // raza tintei (m)
+    const C = [330, 360], R = 250;
+    let h = `<circle cx="${C[0]}" cy="${C[1]}" r="${R}" fill="rgba(10,22,44,.85)" stroke="#2f4566"/>`;
+    [0.25,0.5,0.75,1].forEach(k => h += `<circle cx="${C[0]}" cy="${C[1]}" r="${R*k}" fill="none" stroke="#2f4566"/>`);
+    h += `<line x1="${C[0]-R}" y1="${C[1]}" x2="${C[0]+R}" y2="${C[1]}" stroke="#2f4566"/><line x1="${C[0]}" y1="${C[1]-R}" x2="${C[0]}" y2="${C[1]+R}" stroke="#2f4566"/>
+      <text x="${C[0]+R*0.5+4}" y="${C[1]-6}" fill="#8a98b4" font-size="15">${(scale/2 >= 1 ? (scale/2).toFixed(0) + ' m' : scale/2 >= 0.1 ? (scale/2).toFixed(2).replace('.',',') + ' m' : (scale*50).toFixed(1).replace('.',',') + ' cm')}</text>
+      <text x="${C[0]+R-6}" y="${C[1]-6}" fill="#8a98b4" font-size="15" text-anchor="end">${scale >= 1 ? scale.toFixed(0) + ' m' : scale >= 0.1 ? scale.toFixed(1).replace('.',',') + ' m' : (scale*100).toFixed(0) + ' cm'}</text>`;
+    pts.forEach((p, i) => { const x = C[0] + p.x/scale*R, y = C[1] - p.y/scale*R; if(Math.hypot(x - C[0], y - C[1]) > R) return; h += `<circle cx="${x}" cy="${y}" r="4" fill="${p.c}" opacity="${0.25 + 0.75*i/pts.length}"/>`; });
+    h += `<text x="${C[0]}" y="${C[1]+R+40}" fill="${cur.c}" font-size="26" font-weight="800" text-anchor="middle">${cur.s}</text>
+      <text x="${C[0]}" y="80" fill="#b4c0d4" font-size="17" text-anchor="middle">pozițiile succesive calculate de receptor (ținta își schimbă scara)</text>`;
+    // copaci cand e cazul
+    if(t >= 21 && t < 25) for(let i=0;i<5;i++) h += `<circle cx="${640 + i*60}" cy="${200 + (i%2)*40}" r="70" fill="#1f5a32" opacity=".55"/>`;
+    // controlerul
+    document.getElementById('cSt').textContent = cur.s; document.getElementById('cSt').style.background = cur.c; document.getElementById('cSt').style.color = '#04111f';
+    document.getElementById('cSat').textContent = cur.sat.match(/\d+/g).reduce((a,b) => a + +b, 0);
+    document.getElementById('cH').textContent = cur.H; document.getElementById('cV').textContent = cur.V; document.getElementById('cA').textContent = cur.A;
+    document.getElementById('cP').textContent = t >= 21 && t < 25 ? '3,8' : '1,4'; document.getElementById('cSys').textContent = cur.sat;
+    document.getElementById('cLog').innerHTML = LOG.filter(l => t >= l[0]).slice(-8).map(l => '› ' + l[1]).join('<br>');
+    const pr = seg(t, 13, 16.5, x=>x); document.getElementById('cProg').style.width = (t >= 13 && t < 21 ? 100*pr : 0) + '%';
+    if(t >= 16.5 && t < 21) h += `<g transform="translate(40,560)"><rect width="590" height="100" rx="10" fill="rgba(12,40,24,.92)" stroke="#5be39a"/>
+      <text x="16" y="30" fill="#5be39a" font-size="18" font-weight="700">Punct 101 — salvat (RTK FIX, 5 epoci)</text>
+      <text x="16" y="58" fill="#e8eef8" font-size="16" font-family="Consolas">ETRS89: B 44°28'02,28"  L 26°03'56,16"  h 120,000</text>
+      <text x="16" y="84" fill="#ffc940" font-size="16" font-family="Consolas">Stereo 70: X 330 284,940  Y 584 906,714  H(MN75) 84,610</text></g>`;
+    return h;
+  }
+  const SIDE = [
+    {t:'Poziționarea prin trilaterație', b:`<p>Fiecare satelit transmite momentul emisiei și poziția sa. Receptorul măsoară <b>timpul de propagare</b> și îl transformă în distanță (× viteza luminii).</p>
+      <div class="f">ρᵢ = √((Xᵢ−X)² + (Yᵢ−Y)² + (Zᵢ−Z)²) + c·δt</div>
+      <p>Ceasul receptorului nu este atomic: o eroare de <b>1 μs</b> înseamnă <b>300 m</b>. Necunoscutele sunt <b>X, Y, Z și δt</b> → sunt necesari <b>cel puțin 4 sateliți</b>. Cu mai mulți sateliți, precizia și fiabilitatea cresc.</p>`},
+    {t:'Erori și corecții', b:`<p><b>DGNSS</b>: stațiile de referință, cu coordonate cunoscute, calculează erorile pseudodistanțelor și le transmit receptorilor mobili → precizie submetrică (ROMPOS DGNSS: 3 m sau 0,5 m).</p>
+      <p><b>RTK</b>: se folosește <b>faza undei purtătoare</b>; după rezolvarea numărului întreg de lungimi de undă (ambiguitățile) se obține precizie <b>centimetrică</b>, în timp real.</p>`},
+    {t:'RTK în rețea — ROMPOS', b:`<p><b>ROMPOS</b> (ANCPI) este rețeaua națională de stații GNSS permanente: <b>74 de stații</b>, GPS + GLONASS + Galileo.</p>
+      <p>Centrul de calcul modelează erorile pe toată țara și generează o <b>stație virtuală (VRS)</b> chiar lângă rover. Nu mai e nevoie de o bază proprie.</p>
+      <p>Corecțiile ajung prin <b>internet mobil</b>, cu protocolul <b>NTRIP</b>, în format standard <b>RTCM</b>.</p>`},
+    {t:'Lucrul cu controlerul', b:`<p>Pași în teren: receptorul pornește în modul <b>autonom</b> → conectare la caster-ul NTRIP → <b>DGNSS</b> → <b>FLOAT</b> → <b>FIX</b>.</p>
+      <p>Punctele se măsoară <b>doar în FIX</b>, cu valori mici HRMS / VRMS și PDOP. Sub copaci sau lângă clădiri soluția poate cădea în FLOAT — se așteaptă recâștigarea FIX-ului.</p>
+      <p style="color:var(--muted)">Coordonatele ETRS89 se transformă în Stereo 70 și MN75 (Cursul 1 — RomGEO / TransDatRO).</p>`}];
+  const D = [14, 15, 15, 30], T0 = [0, 14, 29, 44];
+  const clk = AnimUI.init({duration:74, loop:true, phases:[
+    {t:0, text:'Semnalul pleacă de la satelit și ajunge la receptor după ~67 ms: <b>timp × viteza luminii = distanța</b>.'},
+    {t:5, text:'Ceasul receptorului are o eroare δt: cercurile <b>nu se intersectează</b> într-un singur punct.'},
+    {t:7.5, text:'Al <b>patrulea satelit</b> permite calculul erorii de ceas — distanțele se corectează și se obține poziția.'},
+    {t:14, text:'O poziție autonomă are erori de câțiva metri — cea mai mare: <b>ionosfera</b>.'},
+    {t:19, text:'<b>DGNSS</b>: erorile comune se elimină prin corecții de la o stație de referință → submetric.'},
+    {t:24, text:'<b>RTK</b>: cu faza purtătoarei → <b>1–2 cm</b>, în timp real.'},
+    {t:29, text:'Rețeaua ROMPOS: stațiile permanente trimit continuu observații la centrul de calcul.'},
+    {t:36.5, text:'Pentru fiecare rover se generează o <b>stație virtuală (VRS)</b> din stațiile vecine.'},
+    {t:40, text:'Corecțiile ajung la rover prin <b>NTRIP</b> (internet mobil), în format RTCM.'},
+    {t:44, text:'Controlerul: receptorul pornește în <b>modul autonom</b> — norul de poziții are metri.'},
+    {t:46, text:'Conectare la caster-ul NTRIP ROMPOS → corecții → <b>DGNSS</b> → <b>FLOAT</b>.'},
+    {t:54, text:'<b>RTK FIX</b>: pozițiile se strâng într-un cerc de 1–2 cm. Se poate măsura.'},
+    {t:57, text:'Măsurarea punctului: medie pe câteva epoci, apoi salvare — direct și în Stereo 70.'},
+    {t:65, text:'Sub coronament soluția cade în <b>FLOAT</b> — punctul nu se măsoară până la recâștigarea FIX-ului.'}]});
+  document.querySelectorAll('.opts button').forEach(b => b.onclick = () => clk.seek(T0[+b.dataset.s] + 0.01));
+  document.getElementById('bCon').onclick = () => clk.seek(T0[3] + 1.5);
+  document.getElementById('bMes').onclick = () => clk.seek(T0[3] + 13);
+  document.getElementById('bTree').onclick = () => clk.seek(T0[3] + 21);
+  let last = -1, lastT = 0;
+  (function frame(){
+    const t = clk.update(), a = t < T0[1] ? 0 : t < T0[2] ? 1 : t < T0[3] ? 2 : 3, f = (t - T0[a])/D[a];
+    if(a !== last){ last = a; side.innerHTML = `<div style="color:var(--cyan);font-weight:700">PASUL ${a+1}</div><div class="tt">${SIDE[a].t}</div>${SIDE[a].b}`;
+      side.style.display = a === 3 ? 'none' : ''; ctl.style.display = a === 3 ? 'flex' : 'none';
+      document.querySelectorAll('.opts button').forEach(b => b.classList.toggle('on', +b.dataset.s === a)); }
+    sv.innerHTML = a === 0 ? act1(f) : a === 1 ? act2(f) : a === 2 ? act3(f) : act4(t - T0[3], t - lastT);
+    lastT = t;
+    requestAnimationFrame(frame);
+  })();
+})();
+</script>
+</body></html>

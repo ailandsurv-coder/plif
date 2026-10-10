@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Produse și controlul calității</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/d3.min.js"></script><script src="../lib/anim-ui.js"></script><script src="../lib/teren.js"></script>
+<style>
+  #grid{position:absolute;left:20px;right:20px;top:150px;bottom:168px;display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:1fr 1fr;gap:14px}
+  .pc{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden;display:flex;flex-direction:column;opacity:0;transform:translateY(14px);transition:all .5s}
+  .pc.on{opacity:1;transform:none}
+  .pc .im{flex:1;min-height:0;position:relative;overflow:hidden;background:#000}
+  .pc canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  .pc .tx{padding:8px 12px;font-size:clamp(12px,.95vw,16px);line-height:1.3}.pc .tx b{color:var(--gold);font-size:1.12em}.pc .tx span{color:var(--muted)}
+  #qc{position:absolute;left:20px;right:20px;top:150px;bottom:168px;display:none;grid-template-columns:1.1fr 1fr;gap:16px}
+  #qcm{position:relative;border-radius:12px;overflow:hidden;border:1px solid var(--line)}#qcm canvas{width:100%;height:100%}
+  #qct{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-size:clamp(12px,1vw,17px);overflow:hidden}
+  #qct table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}#qct td,#qct th{padding:5px 6px;border-bottom:1px solid var(--line);text-align:right}#qct th{color:var(--muted)}#qct td:first-child,#qct th:first-child{text-align:left}
+  #qct tr.n{opacity:.15}#qct .ok{color:var(--green);font-weight:700}
+  .f{font-family:Consolas,monospace;background:rgba(0,0,0,.28);border-radius:8px;padding:8px 10px;margin:8px 0}
+</style>
+</head><body>
+<div class="a-title">Pasul 8 — Produsele finale și controlul calității<small>Ce se predă beneficiarului, în ce format · cum se verifică precizia pe punctele de control independente</small></div>
+<div class="opts" style="flex-direction:row;top:100px;left:20px;right:auto"><button data-s="0" class="on">1 · Produsele</button><button data-s="1">2 · Controlul calității</button></div>
+<div id="grid"></div>
+<div id="qc"><div id="qcm"><canvas id="qcc"></canvas></div><div id="qct"></div></div>
+<script>
+(function(){
+  const {seg, lerp, ease} = AnimUI, T = window.TEREN;
+  const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+  // ---------- miniaturile produselor (aceeași zonă)
+  const ORT = T.orto(1), R = [380, 60, 420, 280];                        // fereastra: x0, y0, w, h
+  function crop(src){ const c = mk(420, 280); c.getContext('2d').drawImage(src, R[0], T.H - R[1] - R[3], R[2], R[3], 0, 0, 420, 280); return c; }
+  function raster(fn, colf){ const c = mk(420, 280), x = c.getContext('2d'), id = x.createImageData(420, 280);
+    for(let j=0;j<280;j++) for(let i=0;i<420;i++){ const X = R[0] + i, Y = R[1] + R[3] - j, z = fn(X, Y), gx = (fn(X + 1, Y) - fn(X - 1, Y))/2, gy = (fn(X, Y + 1) - fn(X, Y - 1))/2;
+      const hs = Math.max(0, Math.min(1.1, 0.75 + (-gx + gy)*0.9)), c0 = colf(z), k = 4*(j*420 + i); id.data[k] = c0[0]*255*hs; id.data[k+1] = c0[1]*255*hs; id.data[k+2] = c0[2]*255*hs; id.data[k+3] = 255; }
+    x.putImageData(id, 0, 0); return c; }
+  const gray = z => { const v = 0.35 + (z - 54)/24; return [v, v, v]; };
+  function cloud(){ const c = mk(420, 280), x = c.getContext('2d'); x.fillStyle = '#05080f'; x.fillRect(0, 0, 420, 280); let s = 3; const r = () => (s = (s*16807) % 2147483647)/2147483647;
+    for(let i=0;i<26000;i++){ const X = R[0] + r()*R[2], Y = R[1] + r()*R[3], cl = T.cls(X, Y), z = T.surface(X, Y);
+      const col = cl === 5 ? '#3fbf55' : cl === 6 ? '#ff5a3c' : cl === 9 ? '#4aa3ff' : `hsl(${30 + (z - 56)*3},55%,${42 + (z - 56)*1.5}%)`;
+      // vedere oblică simplă: y -> y comprimat + înălțime
+      const px = (X - R[0]), py = (R[1] + R[3] - Y)*0.55 + 110 - (z - 58)*4; x.fillStyle = col; x.fillRect(px, py, 1.4, 1.4); } return c; }
+  function contours(){ const c = mk(420, 280), x = c.getContext('2d'); x.fillStyle = '#f4f0e6'; x.fillRect(0, 0, 420, 280);
+    const G = 2, nx = R[2]/G + 1, ny = R[3]/G + 1, v = new Float64Array(nx*ny); for(let j=0;j<ny;j++) for(let i=0;i<nx;i++) v[j*nx + i] = T.ground(R[0] + i*G, R[1] + R[3] - j*G);
+    const cs = d3.contours().size([nx, ny]).thresholds(d3.range(54, 70, 0.5))(Array.from(v)), path = d3.geoPath(d3.geoTransform({point(px, py){ this.stream.point(px*G, py*G); }}), x);
+    cs.forEach(k => { const maj = Math.abs(k.value - Math.round(k.value/2.5)*2.5) < 1e-6; x.beginPath(); path(k); x.strokeStyle = maj ? '#7a3b12' : '#c08a52'; x.lineWidth = maj ? 1.6 : 0.8; x.stroke(); }); return c; }
+  function model3d(){ const c = mk(420, 280), x = c.getContext('2d'); x.fillStyle = '#0b1426'; x.fillRect(0, 0, 420, 280);
+    for(let j=R[3]; j>=0; j-=1){ const Y = R[1] + j; for(let i=0;i<R[2];i+=1){ const X = R[0] + i, z = T.surface(X, Y), col = T.rgb(X, Y);
+      const px = i, py = 60 + (R[3] - j)*0.75 - (z - 58)*3.2; x.fillStyle = `rgb(${col.map(v => Math.round(v*255*(0.85 + ((i + j) % 3)*0.05))).join(',')})`; x.fillRect(px, py, 1.3, 2.4); } } return c; }
+  const P = [
+    {n:'Ortofotoplan', f:'GeoTIFF / ECW · GSD 2,5 cm', d:'imagine fără deformări, la scară', c:() => crop(ORT)},
+    {n:'Model digital al suprafeței (DSM)', f:'GeoTIFF · pas 5 cm', d:'cu clădiri și vegetație', c:() => raster(T.surface, T.hyps)},
+    {n:'Model digital al terenului (DTM)', f:'GeoTIFF / grid ASCII · pas 0,10–0,50 m', d:'terenul natural, pentru proiectare', c:() => raster(T.ground, T.hyps)},
+    {n:'Nor de puncte clasificat', f:'LAS / LAZ', d:'sol, vegetație, clădiri, apă', c:cloud},
+    {n:'Curbe de nivel', f:'DXF / DWG / SHP · echidistanța 0,5 m', d:'curbe principale la 2,5 m, cotate', c:contours},
+    {n:'Model 3D texturat', f:'OBJ / 3D Tiles / SLPK', d:'vizualizare, măsurători 3D', c:model3d},
+    {n:'Hartă de umbrire (hillshade)', f:'GeoTIFF', d:'relieful bine vizibil, din DTM', c:() => raster(T.ground, gray)},
+    {n:'Raportul de procesare', f:'PDF', d:'acoperire, suprapuneri, erori pe GCP și CP, parametrii camerei', c:() => { const c = mk(420, 280), x = c.getContext('2d'); x.fillStyle = '#f7f7f4'; x.fillRect(0, 0, 420, 280);
+      x.fillStyle = '#222'; x.font = '700 22px Segoe UI'; x.fillText('Raport de procesare', 24, 64); x.font = '14px Segoe UI'; ['Imagini: 390 / 390 aliniate', 'GSD mediu: 2,51 cm/px', 'Eroare de reproiecție: 0,61 px', 'GCP: 5 · RMSE XY 1,1 cm · Z 1,6 cm', 'CP: 6 · RMSE XY 2,0 cm · Z 2,5 cm', 'Sistem: Stereo 70 (EPSG:3844), MN75'].forEach((t, i) => x.fillText(t, 24, 96 + i*26));
+      x.fillStyle = '#3fd0ff'; for(let i=0;i<10;i++) x.fillRect(300 + i*9, 240 - (20 + (i*37 % 60)), 6, 20 + (i*37 % 60)); return c; }}];
+  const grid = document.getElementById('grid');
+  P.forEach(p => { const d = document.createElement('div'); d.className = 'pc'; const im = document.createElement('div'); im.className = 'im'; im.appendChild(p.c());
+    d.appendChild(im); const tx = document.createElement('div'); tx.className = 'tx'; tx.innerHTML = `<b>${p.n}</b><br>${p.f}<br><span>${p.d}</span>`; d.appendChild(tx); grid.appendChild(d); });
+  // ---------- controlul calității pe punctele de verificare (CP)
+  const CP = [['CP1', 205, 380, 1.2, -0.8, 2.4], ['CP2', 460, 265, -0.6, 1.5, -3.1], ['CP3', 590, 160, 2.1, 0.4, 1.8], ['CP4', 300, 160, -1.4, -1.9, 3.6], ['CP5', 640, 330, 0.3, 2.2, -2.2], ['CP6', 120, 260, -2.0, -0.5, -1.4]];
+  const rms = k => Math.sqrt(CP.reduce((a, c) => a + c[k]*c[k], 0)/CP.length);
+  const rx = rms(3), ry = rms(4), rz = rms(5), rxy = Math.hypot(rx, ry);
+  const qcc = document.getElementById('qcc'), qct = document.getElementById('qct'), q = qcc.getContext('2d');
+  function drawQC(f){
+    const W = qcc.clientWidth, H = qcc.clientHeight, dpr = Math.min(2, devicePixelRatio || 1); if(qcc.width !== W*dpr){ qcc.width = W*dpr; qcc.height = H*dpr; }
+    q.setTransform(dpr, 0, 0, dpr, 0, 0); const s = Math.max(W/T.W, H/T.H); q.drawImage(ORT, (W - T.W*s)/2, (H - T.H*s)/2, T.W*s, T.H*s);
+    const P2 = (x, y) => [(W - T.W*s)/2 + x*s, (H - T.H*s)/2 + (T.H - y)*s], n = Math.floor(seg(f, 0.05, 0.6, x=>x)*CP.length + 0.001), EX = 800;
+    CP.forEach((c, i) => { if(i >= n) return; const [x, y] = P2(c[1], c[2]);
+      q.fillStyle = '#fff'; q.beginPath(); q.arc(x, y, 9, 0, 7); q.fill(); q.fillStyle = '#d33'; q.beginPath(); q.arc(x, y, 4, 0, 7); q.fill();
+      q.strokeStyle = '#ffd84a'; q.lineWidth = 3; q.beginPath(); q.moveTo(x, y); q.lineTo(x + c[3]/100*EX*s, y - c[4]/100*EX*s); q.stroke();
+      q.fillStyle = c[5] > 0 ? '#3fd0ff' : '#ff6262'; q.fillRect(x + 14, y - Math.max(0, c[5])*6, 9, Math.abs(c[5])*6);
+      q.font = '700 15px Segoe UI'; q.fillStyle = '#fff'; q.strokeStyle = '#000'; q.lineWidth = 3; q.strokeText(c[0], x - 12, y + 26); q.fillText(c[0], x - 12, y + 26); });
+    q.fillStyle = 'rgba(0,0,0,.6)'; q.fillRect(8, H - 34, 520, 26); q.fillStyle = '#fff'; q.font = '14px Segoe UI';
+    q.fillText('săgeată galbenă = abaterea în plan (exagerată ×800) · bară = abaterea pe verticală', 16, H - 16);
+    qct.innerHTML = `<h4 style="margin:0 0 6px;color:var(--cyan)">Abateri pe punctele de verificare (cm)</h4>
+      <div style="color:var(--muted);font-size:.9em;margin-bottom:6px">diferența dintre coordonatele din produs și cele măsurate GNSS RTK pe teren</div>
+      <table><tr><th>Punct</th><th>ΔX</th><th>ΔY</th><th>ΔZ</th></tr>${CP.map((c, i) => `<tr class="${i < n ? '' : 'n'}"><td>${c[0]}</td>${[3, 4, 5].map(k => `<td>${(c[k] > 0 ? '+' : '') + c[k].toFixed(1).replace('.', ',')}</td>`).join('')}</tr>`).join('')}
+      <tr class="${f > 0.65 ? '' : 'n'}" style="font-weight:700"><td>RMSE</td><td>${rx.toFixed(1).replace('.', ',')}</td><td>${ry.toFixed(1).replace('.', ',')}</td><td>${rz.toFixed(1).replace('.', ',')}</td></tr></table>
+      <div class="f" style="opacity:${seg(f, 0.65, 0.75)}">RMSE = √( Σ Δ² / n )<br>RMSE<sub>XY</sub> = √(RMSE<sub>X</sub>² + RMSE<sub>Y</sub>²) = ${rxy.toFixed(1).replace('.', ',')} cm</div>
+      <div style="opacity:${seg(f, 0.78, 0.9)}">Comparat cu toleranța din caietul de sarcini: <span class="ok">în plan ≈ ${(rxy/2.5).toFixed(1).replace('.', ',')} × GSD, pe verticală ≈ ${(rz/2.5).toFixed(1).replace('.', ',')} × GSD — admis</span>.<br>
+      <span style="color:var(--muted)">Punctele de verificare nu intră în calcul: dacă s-ar folosi ca GCP, eroarea ar părea artificial mică.</span></div>`;
+  }
+  const T0 = [0, 14], DUR = [14, 14];
+  const clk = AnimUI.init({duration:28, loop:true, phases:[
+    {t:0, text:'Din același zbor rezultă mai multe <b>produse</b>, toate în același sistem de coordonate (Stereo 70, MN75).'},
+    {t:14, text:'<b>Controlul calității</b>: pe punctele de verificare, măsurate independent pe teren, se calculează abaterile și RMSE.'}]});
+  document.querySelectorAll('.opts button').forEach(b => b.onclick = () => clk.seek(T0[+b.dataset.s] + 0.01));
+  (function frame(){ const t = clk.update(), a = t < T0[1] ? 0 : 1, f = (t - T0[a])/DUR[a];
+    document.querySelectorAll('.opts button').forEach(b => b.classList.toggle('on', +b.dataset.s === a));
+    grid.style.display = a === 0 ? 'grid' : 'none'; document.getElementById('qc').style.display = a === 1 ? 'grid' : 'none';
+    if(a === 0) [...grid.children].forEach((c, i) => c.classList.toggle('on', f > 0.03 + i*0.09)); else drawQC(f);
+    requestAnimationFrame(frame); })();
+})();
+</script>
+</body></html>

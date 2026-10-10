@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sistemul ortogonal de coordonate X–Y</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/anim-ui.js"></script>
+<style>
+  #sv{position:absolute;left:0;top:90px;width:64%;height:calc(100vh - 240px)}
+  #tab{right:20px;top:100px;width:calc(36% - 30px)}
+  #tab table{width:100%;font-variant-numeric:tabular-nums}
+  #tab tr{transition:background .4s}#tab tr.hl{background:rgba(63,208,255,.18)}
+  #calc{right:20px;top:420px;width:calc(36% - 30px);min-height:220px}
+  #calc .f{font-size:1.05em;margin:3px 0}
+  @media (max-width:900px){#sv{width:100%}#tab,#calc{display:none}}
+</style>
+</head><body>
+<div class="a-title">Sistemul ortogonal de coordonate X – Y (Nord – Est)<small>Convenția geodezică: X = Nord (axa verticală), Y = Est (axa orizontală), cadranele numerotate în sens orar</small></div>
+<svg id="sv" viewBox="0 0 1000 700"></svg>
+<div class="a-panel" id="tab"><h4>Inventar de coordonate Stereo 70 (exemplu)</h4><table id="tt"></table></div>
+<div class="a-panel" id="calc"><h4>Calcule din coordonate</h4><div id="cc" style="color:var(--muted)">—</div></div>
+<script>
+(function(){
+  const {seg, ease, lerp} = AnimUI;
+  const P = [['1', 330214.52, 584862.31], ['2', 330268.90, 584951.07], ['3', 330197.44, 585018.66], ['4', 330128.03, 584940.25], ['5', 330160.71, 584856.12]];
+  const n2 = v => v.toLocaleString('ro-RO', {minimumFractionDigits:2, maximumFractionDigits:2});
+  document.getElementById('tt').innerHTML = '<tr><th>Pct.</th><th>X (Nord) [m]</th><th>Y (Est) [m]</th></tr>' + P.map((p,i) => `<tr id="r${i}"><td>${p[0]}</td><td>${n2(p[1])}</td><td>${n2(p[2])}</td></tr>`).join('');
+  // fereastra de coordonate -> SVG
+  const N0 = 330080, N1 = 330320, E0 = 584800, E1 = 585060, L = 130, T = 40, S = 2.35;   // 1 m = 2,35 px
+  const sx = e => L + (e - E0)*S, sy = n => T + (N1 - n)*S;
+  const sv = document.getElementById('sv');
+  // calcule
+  const dX = P[1][1] - P[0][1], dY = P[1][2] - P[0][2], D = Math.hypot(dX, dY);
+  let th = Math.atan2(dY, dX)*180/Math.PI; if(th < 0) th += 360;
+  let A2 = 0; for(let i=0;i<P.length;i++){ const a = P[i], b = P[(i+1)%P.length], c = P[(i-1+P.length)%P.length]; A2 += a[1]*(b[2] - c[2]); }
+  const A = Math.abs(A2)/2;
+
+  function draw(t){
+    const kA = seg(t, 0.2, 2.5), kQ = seg(t, 2.5, 5), kG = seg(t, 5, 6.5);
+    let h = `<defs><marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#ff6262"/></marker></defs>`;
+    // grila 20 m
+    for(let e=E0; e<=E1; e+=20) h += `<line x1="${sx(e)}" y1="${sy(N1)}" x2="${sx(e)}" y2="${sy(N0)}" stroke="#22355a" stroke-width="1" opacity="${kG}"/>` + (e % 40 === 0 ? `<text x="${sx(e)}" y="${sy(N0)+22}" fill="#b4c0d4" font-size="13" text-anchor="middle" opacity="${kG}">${e.toLocaleString('ro-RO')}</text>` : '');
+    for(let n=N0; n<=N1; n+=20) h += `<line x1="${sx(E0)}" y1="${sy(n)}" x2="${sx(E1)}" y2="${sy(n)}" stroke="#22355a" stroke-width="1" opacity="${kG}"/>` + (n % 40 === 0 ? `<text x="${sx(E0)-8}" y="${sy(n)+5}" fill="#b4c0d4" font-size="13" text-anchor="end" opacity="${kG}">${n.toLocaleString('ro-RO')}</text>` : '');
+    // axe prin centrul ferestrei (statia de referinta)
+    const cxE = 584930, cyN = 330200, ox = sx(cxE), oy = sy(cyN);
+    h += `<line x1="${ox}" y1="${oy + 290*kA}" x2="${ox}" y2="${oy - 290*kA}" stroke="#ff6262" stroke-width="3" marker-end="url(#ah)"/>
+      <line x1="${ox - 300*kA}" y1="${oy}" x2="${ox + 300*kA}" y2="${oy}" stroke="#ff6262" stroke-width="3" marker-end="url(#ah)"/>`;
+    if(kA > 0.9) h += `<text x="${ox+12}" y="${oy-272}" fill="#ff6262" font-size="26" font-weight="700">+X  N</text><text x="${ox+292}" y="${oy-12}" fill="#ff6262" font-size="26" font-weight="700" text-anchor="end">+Y  E</text>
+      <text x="${ox+12}" y="${oy+284}" fill="#ff8a8a" font-size="20">S</text><text x="${ox-292}" y="${oy-12}" fill="#ff8a8a" font-size="20">V</text>`;
+    // cadrane in sens orar
+    if(kQ > 0){ h += `<g opacity="${1 - 0.7*seg(t, 6.5, 7.5)}">`;
+      const Q = [['I','NE',45],['II','SE',135],['III','SV',225],['IV','NV',315]], r = 120;
+      const ang = 360*kQ, a0 = -90, a1 = a0 + ang, rad = d => d*Math.PI/180;
+      h += `<path d="M ${ox} ${oy - r} A ${r} ${r} 0 ${ang > 180 ? 1 : 0} 1 ${ox + r*Math.cos(rad(a1))} ${oy + r*Math.sin(rad(a1))}" fill="none" stroke="#ffc940" stroke-width="3" stroke-dasharray="6 5"/>`;
+      Q.forEach(([q, nm, az]) => { if(az > ang) return; const x = ox + 190*Math.sin(rad(az)), y = oy - 190*Math.cos(rad(az));
+        h += `<text x="${x}" y="${y}" fill="#ffc940" font-size="30" font-weight="700" text-anchor="middle" opacity=".9">${q}</text><text x="${x}" y="${y+26}" fill="#ffc940" font-size="18" text-anchor="middle">${nm}</text>`; });
+      h += '</g>';
+    }
+    // punctele zboara din tabel spre pozitie, cu proiectii pe axe
+    P.forEach((p,i) => {
+      const k = seg(t, 7 + i*1.1, 8 + i*1.1); if(k <= 0) return;
+      const x = lerp(1000, sx(p[2]), ease(k)), y = lerp(80 + 40*i, sy(p[1]), ease(k));
+      if(k >= 1){
+        const d = seg(t, 8 + i*1.1, 8.8 + i*1.1);
+        h += `<line x1="${x}" y1="${y}" x2="${x}" y2="${y + (oy - y)*d}" stroke="#3fd0ff" stroke-width="1.6" stroke-dasharray="5 4"/>
+          <line x1="${x}" y1="${y}" x2="${x + (ox - x)*d}" y2="${y}" stroke="#5be39a" stroke-width="1.6" stroke-dasharray="5 4"/>`;
+      }
+      h += `<circle cx="${x}" cy="${y}" r="9" fill="#fff" stroke="#3fd0ff" stroke-width="3"/><text x="${x+12}" y="${y-12}" fill="#fff" font-size="22" font-weight="700">${p[0]}</text>`;
+    });
+    // poligonul si aria
+    const kP = seg(t, 21, 23);
+    if(kP > 0) h += `<polygon points="${P.map(p => sx(p[2]) + ',' + sy(p[1])).join(' ')}" fill="rgba(255,201,64,${0.22*kP})" stroke="#ffc940" stroke-width="2.5" opacity="${kP}"/>`;
+    // latura 1-2: dX, dY, orientare
+    const kD = seg(t, 14, 16);
+    if(kD > 0){
+      const x1 = sx(P[0][2]), y1 = sy(P[0][1]), x2 = sx(P[1][2]), y2 = sy(P[1][1]);
+      h += `<line x1="${x1}" y1="${y1}" x2="${x1 + (x2-x1)*kD}" y2="${y1 + (y2-y1)*kD}" stroke="#ff9d3c" stroke-width="4"/>`;
+      if(kD >= 1){
+        const kO = seg(t, 16, 18), r = 70, a = th*kO;
+        h += `<line x1="${x1}" y1="${y1}" x2="${x1}" y2="${y1-110}" stroke="#fff" stroke-width="1.5" stroke-dasharray="4 4"/><text x="${x1-6}" y="${y1-116}" fill="#fff" font-size="15" text-anchor="middle">N</text>
+          <path d="M ${x1} ${y1-r} A ${r} ${r} 0 0 1 ${x1 + r*Math.sin(a*Math.PI/180)} ${y1 - r*Math.cos(a*Math.PI/180)}" fill="none" stroke="#ff9d3c" stroke-width="2.5"/>
+          <text x="${x1 + 26}" y="${y1 - 78}" fill="#ff9d3c" font-size="20" font-weight="700" opacity="${kO}">θ₁₂</text>
+          <line x1="${x1}" y1="${y1}" x2="${x1}" y2="${y2}" stroke="#3fd0ff" stroke-width="2" opacity="${kO}"/><line x1="${x1}" y1="${y2}" x2="${x2}" y2="${y2}" stroke="#5be39a" stroke-width="2" opacity="${kO}"/>
+          <text x="${x1-8}" y="${(y1+y2)/2}" fill="#3fd0ff" font-size="17" text-anchor="end" opacity="${kO}">ΔX</text><text x="${(x1+x2)/2}" y="${y2-8}" fill="#5be39a" font-size="17" text-anchor="middle" opacity="${kO}">ΔY</text>`;
+      }
+    }
+    sv.innerHTML = h;
+    // tabel + calcule
+    P.forEach((p,i) => document.getElementById('r'+i).classList.toggle('hl', t > 7 + i*1.1 && t < 9 + i*1.1 || (t > 14 && t < 21 && i < 2)));
+    let c = '';
+    if(t > 14) c += `<div class="f">ΔX = X₂ − X₁ = <b>${n2(dX)}</b> m &nbsp; ΔY = Y₂ − Y₁ = <b>${n2(dY)}</b> m</div>`;
+    if(t > 15.5) c += `<div class="f">D₁₂ = √(ΔX² + ΔY²) = <b style="color:var(--orange)">${n2(D)} m</b></div>`;
+    if(t > 17) c += `<div class="f">θ₁₂ = arctg(ΔY / ΔX) = <b style="color:var(--orange)">${th.toFixed(4).replace('.',',')}°</b> = <b>${(th/0.9).toFixed(4).replace('.',',')}ᵍ</b><br><span style="color:var(--muted);font-size:.85em">orientarea: unghiul măsurat de la Nord, în sens orar</span></div>`;
+    if(t > 22) c += `<div class="f" style="margin-top:8px">S = ½·|Σ Xᵢ (Yᵢ₊₁ − Yᵢ₋₁)| = <b style="color:var(--gold)">${n2(A)} m²</b></div>`;
+    document.getElementById('cc').innerHTML = c || '—';
+  }
+  const clk = AnimUI.init({duration:28, loop:true, phases:[
+    {t:0,  text:'În geodezie și topografie axa <b>X este orientată spre Nord</b>, iar axa <b>Y spre Est</b> — invers față de convenția din matematică.'},
+    {t:2.5,text:'Cadranele se numerotează <b>în sens orar</b>, pornind de la Nord: I (NE), II (SE), III (SV), IV (NV) — la fel ca unghiurile de orientare.'},
+    {t:7,  text:'Fiecare punct măsurat se raportează prin coordonatele sale: <b>X = distanța pe Nord</b>, <b>Y = distanța pe Est</b>, în metri.'},
+    {t:14, text:'Din coordonate se calculează direct <b>distanța</b> și <b>orientarea</b> unei laturi — fără a mai măsura pe teren.'},
+    {t:21, text:'…și <b>suprafața</b> oricărui poligon (formula lui Gauss) — baza calculelor din cadastru și din proiectele de îmbunătățiri funciare.'}]});
+  let lt = -1;
+  (function frame(){ const t = clk.update(); if(Math.abs(t - lt) > 0.015){ lt = t; draw(t); } requestAnimationFrame(frame); })();
+})();
+</script>
+</body></html>

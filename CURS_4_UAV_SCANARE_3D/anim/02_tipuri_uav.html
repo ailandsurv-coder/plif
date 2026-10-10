@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tipuri de UAV</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/three.min.js"></script><script src="../lib/OrbitControls.js"></script>
+<script src="../lib/anim-ui.js"></script><script src="../lib/drona.js"></script>
+<style>
+  #pn{right:20px;top:110px;width:min(440px,32vw);bottom:150px;overflow:hidden;font-size:clamp(12px,.98vw,17px)}
+  #pn .tt{font-size:1.55em;font-weight:700;margin:2px 0 8px}
+  #pn .bar{display:grid;grid-template-columns:150px 1fr;gap:8px;align-items:center;margin:5px 0;font-size:.88em}
+  #pn .bar i{display:block;height:12px;border-radius:6px;background:linear-gradient(90deg,var(--cyan),#7fe7ff);transition:width .6s}
+  #pn .bar span{color:var(--muted)}
+  #pn ul{margin:6px 0;padding-left:20px}#pn li{margin:3px 0}
+  #legal{position:absolute;left:24px;right:24px;top:110px;display:none;grid-template-columns:repeat(3,1fr);gap:14px;align-content:start}
+  #legal .card{background:rgba(10,18,34,.96);border:1px solid var(--line);border-radius:14px;padding:16px 18px;font-size:clamp(14px,1.15vw,20px);line-height:1.45}
+  #legal h4{margin:0 0 6px;font-size:1.2em}
+  table.cmp{width:100%;border-collapse:collapse;font-size:.85em}table.cmp td,table.cmp th{border-bottom:1px solid var(--line);padding:5px 4px;text-align:left}
+  table.cmp th{color:var(--muted)}
+</style>
+</head><body><div id="stage"></div>
+<div class="a-title">Tipuri de UAV folosite în topografie<small>Multirotor · aripă fixă · VTOL (decolare verticală + zbor cu aripă) — ce poate fiecare și cadrul legal de zbor</small></div>
+<div class="opts" style="flex-direction:row;top:62px"><button data-s="0" class="on">Multirotor</button><button data-s="1">Aripă fixă</button><button data-s="2">VTOL</button><button data-s="3">Comparație</button><button data-s="4">Cadrul legal</button></div>
+<div class="a-panel" id="pn"></div>
+<div id="legal"></div>
+<script>
+(function(){
+  const {seg, lerp, ease} = AnimUI;
+  const ren = new THREE.WebGLRenderer({antialias:true, alpha:true, preserveDrawingBuffer:true}); ren.setPixelRatio(Math.min(2, devicePixelRatio||1));
+  document.getElementById('stage').appendChild(ren.domElement);
+  const sc = new THREE.Scene(), cam = new THREE.PerspectiveCamera(36, 1, 0.05, 200);
+  DRONA.lights(sc);
+  // podea cu grilă
+  const grid = new THREE.GridHelper(40, 40, 0x2a4a7a, 0x16294a); grid.position.y = -0.01; sc.add(grid);
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(20, 64), new THREE.MeshBasicMaterial({color:0x07101f, transparent:true, opacity:0.6})); floor.rotation.x = -Math.PI/2; floor.position.y = -0.02; sc.add(floor);
+  const X = [-4.2, 0, 4.2];
+  const pads = X.map(x => { const p = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.66, 0.06, 48), new THREE.MeshStandardMaterial({color:0x1b2a46, roughness:0.8}));
+    p.position.set(x, 0.03, 0); sc.add(p); const r = new THREE.Mesh(new THREE.RingGeometry(0.4, 0.46, 48), new THREE.MeshBasicMaterial({color:0xffc940})); r.rotation.x = -Math.PI/2; r.position.set(x, 0.065, 0); sc.add(r); return p; });
+  const D = [DRONA.multirotor(), DRONA.aripa(), DRONA.vtol()];
+  D.forEach((d, i) => { d.scale.setScalar(1.4); d.position.set(X[i], 0.6, 0); sc.add(d); });
+  const ctr = new THREE.OrbitControls(cam, ren.domElement); ctr.enableDamping = true; let manual = false; ren.domElement.addEventListener('pointerdown', () => manual = true);
+  // centrul imaginii se mută spre stânga, ca drona să nu stea sub panoul din dreapta
+  function rs(){ ren.setSize(innerWidth, innerHeight); cam.aspect = innerWidth/innerHeight; cam.setViewOffset(innerWidth, innerHeight, innerWidth*0.16, 0, innerWidth, innerHeight); cam.updateProjectionMatrix(); } addEventListener('resize', rs); rs();
+
+  const T = [
+    {n:'Multirotor', s:'quadcopter / hexacopter / octocopter', bars:[2,2,5,5,4],
+     plus:['decolează și aterizează oriunde (1 × 1 m)', 'staționează în aer — inspecții, puncte de detaliu, fațade', 'poartă senzori grei: LiDAR, camere full-frame', 'zbor lent, imagini foarte clare'],
+     minus:['autonomie mică: 25–45 min', 'acoperire de ordinul zecilor – câtorva sute de ha pe zbor'],
+     uz:'Ridicări pe suprafețe mici și medii, șantiere, canale, construcții hidrotehnice, scanare LiDAR.'},
+    {n:'Aripă fixă', s:'avion fără pilot, lansat de mână sau cu catapultă', bars:[5,5,1,0,3],
+     plus:['autonomie mare: 60–120 min', 'sute de ha pe un singur zbor', 'eficient energetic, stabil pe vânt'],
+     minus:['nu poate staționa', 'are nevoie de spațiu pentru lansare și aterizare (pe burtă sau cu parașută)', 'risc la aterizare pe teren denivelat'],
+     uz:'Suprafețe mari: perimetre de irigații, bazine hidrografice, trasee lungi de canale și diguri.'},
+    {n:'VTOL', s:'Vertical Take-Off and Landing — decolare verticală, zbor cu aripă', bars:[4,5,5,1,1],
+     plus:['decolează și aterizează vertical, ca un multirotor', 'zboară eficient cu aripa, ca un avion', 'acoperire mare fără pistă de lansare'],
+     minus:['cost mai mare', 'mecanică mai complexă (două sisteme de propulsie)', 'sensibil la vânt la decolare și aterizare'],
+     uz:'Proiecte mari în zone fără spațiu de lansare: lunci, zone cu culturi înalte, terenuri accidentate.'}];
+  const BARS = ['Autonomie', 'Suprafață / zbor', 'Decolare în spațiu mic', 'Zbor staționar', 'Cost redus'];
+  const pn = document.getElementById('pn'), legal = document.getElementById('legal');
+  function card(i){ const t = T[i];
+    pn.innerHTML = `<div style="color:var(--cyan);font-weight:700">TIPUL ${i+1}</div><div class="tt">${t.n}</div><div style="color:var(--muted);margin-top:-6px;margin-bottom:8px">${t.s}</div>
+      ${BARS.map((b, k) => `<div class="bar"><span>${b}</span><div style="background:#16233f;border-radius:6px"><i style="width:${t.bars[k]*20}%"></i></div></div>`).join('')}
+      <div style="color:var(--green);font-weight:700;margin-top:10px">Avantaje</div><ul>${t.plus.map(x => `<li>${x}</li>`).join('')}</ul>
+      <div style="color:var(--red);font-weight:700">Limite</div><ul>${t.minus.map(x => `<li>${x}</li>`).join('')}</ul>
+      <div style="color:var(--gold);font-weight:700">Unde se folosește</div><div>${t.uz}</div>`; }
+  function compar(){ pn.innerHTML = `<div class="tt">Comparație (ordin de mărime)</div><table class="cmp"><tr><th></th><th>Multirotor</th><th>Aripă fixă</th><th>VTOL</th></tr>
+      <tr><td>Autonomie</td><td>25–45 min</td><td>60–120 min</td><td>60–120 min</td></tr>
+      <tr><td>Suprafață / zbor*</td><td>zeci – sute ha</td><td>sute ha</td><td>sute ha – 1 000+ ha</td></tr>
+      <tr><td>Decolare</td><td>verticală</td><td>lansare, pistă</td><td>verticală</td></tr>
+      <tr><td>Zbor staționar</td><td>da</td><td>nu</td><td>doar la decolare</td></tr>
+      <tr><td>Senzori grei (LiDAR)</td><td>da</td><td>limitat</td><td>limitat</td></tr></table>
+      <div style="color:var(--muted);font-size:.8em;margin-top:8px">* la GSD de 2–3 cm; depinde de model, cameră, vânt și relief.</div>`; }
+  function law(on){ legal.style.display = on ? 'grid' : 'none'; if(!on) return;
+    legal.innerHTML = `<div class="card" style="grid-column:span 3"><h4 style="color:var(--cyan)">Cadrul legal — Regulamentele (UE) 2019/945 și 2019/947, aplicate în România de AACR</h4>
+      Operatorul de drone se <b>înregistrează</b> la AACR (Autoritatea Aeronautică Civilă Română); pilotul are <b>certificat de competență</b>. Înainte de zbor se verifică <b>zonele geografice UAS</b> (aeroporturi, zone militare, zone protejate) și autorizările necesare.</div>
+      <div class="card"><h4 style="color:var(--green)">Categoria „deschisă"</h4>masă < 25 kg · zbor în raza vizuală (VLOS) · max. 120 m față de sol<br><br><b>A1</b> — peste oameni (drone C0, C1)<br><b>A2</b> — aproape de oameni (C2)<br><b>A3</b> — departe de oameni, la cel puțin 150 m de zone rezidențiale, comerciale, industriale sau recreative (C2–C4)</div>
+      <div class="card"><h4 style="color:var(--gold)">Categoria „specifică"</h4>risc mai mare: zbor în afara razei vizuale (BVLOS), peste 120 m, în apropierea oamenilor cu drone mari<br><br>scenarii standard (STS) sau <b>autorizare</b> pe baza unei evaluări a riscului (SORA)</div>
+      <div class="card"><h4 style="color:var(--red)">Categoria „certificată"</h4>risc ridicat: transport de persoane, mărfuri periculoase, zboruri peste aglomerări cu drone mari<br><br>reguli apropiate de aviația cu pilot</div>`; }
+
+  const DUR = [10, 10, 12, 6, 8], T0 = [0, 10, 20, 32, 38];
+  const clk = AnimUI.init({duration:46, loop:true, phases:[
+    {t:0, text:'<b>Multirotorul</b> stă pe loc în aer și decolează de oriunde — dar bateriile îi ajung pentru 25–45 de minute.'},
+    {t:10, text:'<b>Aripa fixă</b> planează ca un avion: acoperă suprafețe mari, dar nu poate sta pe loc și are nevoie de spațiu de aterizare.'},
+    {t:20, text:'<b>VTOL</b> decolează vertical, apoi trece în zbor cu aripa — rotoarele de sustentație se opresc.'},
+    {t:32, text:'Alegerea depinde de <b>suprafață</b>, de <b>spațiul de decolare</b> și de <b>senzor</b> (cameră sau LiDAR).'},
+    {t:38, text:'Orice zbor profesional respectă <b>regulile UE</b> și restricțiile din <b>zonele geografice UAS</b>.'}]});
+  document.querySelectorAll('.opts button').forEach(b => b.onclick = () => clk.seek(T0[+b.dataset.s] + 0.01));
+  let lastA = -1, last = performance.now();
+  (function frame(){
+    const t = clk.update(), now = performance.now(), rdt = Math.min(0.05, (now - last)/1000); last = now;
+    const a = T0.reduce((acc, v, i) => t >= v ? i : acc, 0), f = (t - T0[a])/DUR[a];
+    if(a !== lastA){ lastA = a; a < 3 ? card(a) : compar(); law(a === 4); pn.style.display = a === 4 ? 'none' : '';
+      document.querySelectorAll('.opts button').forEach(b => b.classList.toggle('on', +b.dataset.s === a)); }
+    const sp = clk.playing ? rdt*clk.speed : 0;
+    // multirotor: urcă, staționează, se rotește
+    const m = D[0]; m.position.y = 0.25 + (a === 0 ? 1.4*ease(seg(f, 0.05, 0.3)) + 0.06*Math.sin(t*2) : 0.9); m.rotation.y += sp*0.5; DRONA.spin(m, sp, 70);
+    // aripa: cerc înclinat în faza ei, altfel pe podium
+    const w = D[1];
+    if(a === 1){ const ang = t*0.9; w.position.set(X[1] + 2.0*Math.cos(ang), 1.6, 2.0*Math.sin(ang)); w.rotation.set(0, -ang, -0.45); DRONA.spin(w, sp, 80); }
+    else { w.position.set(X[1], 0.35, 0); w.rotation.set(0, t*0.2, 0); }
+    // VTOL: decolare verticală -> tranziție -> zbor în cerc
+    const v = D[2], vr = v.userData.rotors;
+    if(a === 2){ const up = ease(seg(f, 0.05, 0.3)), tr = seg(f, 0.35, 0.55), ang = Math.max(0, (f - 0.35))*7;
+      const px = X[2] + lerp(0, 1.8*Math.cos(ang) - 1.8, tr), pz = lerp(0, 1.8*Math.sin(ang), tr);
+      v.position.set(px + 0.9*tr, 0.35 + 1.7*up, pz); v.rotation.set(0, -ang*tr, -0.4*tr*Math.min(1, ang));
+      vr.forEach((r, i) => r.rotation.y += (i === 0 ? 80*seg(f, 0.3, 0.45) : 80*(1 - seg(f, 0.45, 0.6)))*sp*(i % 2 ? -1 : 1)); }
+    else { v.position.set(X[2], 0.35, 0); v.rotation.set(0, -t*0.2, 0); }
+    // camera
+    const V = [[X[0], 1.55, 3.6, 0.7], [X[1], 1.4, 9.5, 3.6], [X[2], 1.5, 9.5, 3.6], [0, 0.8, 11, 3.2], [0, 0.8, 11, 3.2]][a];
+    if(!manual){ const tgt = new THREE.Vector3(V[0], V[1], 0); cam.position.lerp(new THREE.Vector3(V[0] + V[2]*0.3, V[1] + V[3], V[2]), 0.05); ctr.target.lerp(tgt, 0.05); cam.lookAt(ctr.target); }
+    ctr.update(); ren.render(sc, cam); requestAnimationFrame(frame);
+  })();
+})();
+</script>
+</body></html>

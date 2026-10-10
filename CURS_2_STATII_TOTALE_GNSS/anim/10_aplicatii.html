@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aplicații GNSS în îmbunătățiri funciare</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/d3.min.js"></script><script src="../lib/anim-ui.js"></script>
+<style>
+  #sv{position:absolute;left:0;top:92px;width:64%;height:calc(100vh - 250px)}
+  #pn{right:20px;top:190px;width:calc(36% - 30px);bottom:160px;overflow:hidden;font-size:clamp(14px,1.25vw,22px)}
+  #pn .tt{font-size:1.4em;font-weight:700;margin:4px 0 8px}
+  #pn .kpi{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+  #pn .kpi div{background:rgba(0,0,0,.25);border-radius:10px;padding:8px 10px}
+  #pn .kpi b{display:block;font-size:1.5em;color:var(--gold)}
+</style>
+</head><body>
+<div class="a-title">Aplicații GNSS în lucrările de îmbunătățiri funciare<small>Ridicări rapide pe suprafețe mari · modele digitale ale terenului · nivelarea terenului · monitorizarea infrastructurii</small></div>
+<div class="opts"><button data-s="0" class="on">1 · Ridicare și DTM</button><button data-s="1">2 · Nivelare cu ghidaj GNSS</button><button data-s="2">3 · Monitorizare diguri</button></div>
+<svg id="sv" viewBox="0 0 1000 680"></svg>
+<div class="a-panel" id="pn"></div>
+<script>
+(function(){
+  const {seg, lerp, ease} = AnimUI, sv = document.getElementById('sv'), pn = document.getElementById('pn');
+  // teren (m) pe o parcela de 600 x 400 m
+  const Z = (x, y) => 24 + 0.0018*x + 0.6*Math.sin(x/90)*Math.cos(y/70) + 0.35*Math.sin((x+y)/40);
+  const PW = 600, PH = 400, sc = 1.45, OX = 40, OY = 70, mx = x => OX + x*sc, my = y => OY + (PH - y)*sc;
+  const col = d3.scaleSequential(d3.interpolateRgbBasis(['#2f6b3a','#9bbb4a','#e3c35a','#c9773c'])).domain([23.2, 26.4]);
+  // traseul roverului: benzi la 40 m, punct la 25 m
+  const path = []; for(let r=0; r<=PH/40; r++){ const y = 20 + r*40; const xs = d3.range(15, PW, 25); (r%2 ? xs.reverse() : xs).forEach(x => path.push([x, Math.min(PH-10, y)])); }
+  function sceneA(f){
+    let h = `<rect x="${mx(0)}" y="${my(PH)}" width="${PW*sc}" height="${PH*sc}" fill="#1a2a1c" stroke="#2f4566"/>`;
+    const kP = seg(f, 0.02, 0.6, x=>x), n = Math.floor(path.length*kP), kD = seg(f, 0.62, 0.85);
+    if(kD > 0){ const g = 10; for(let x=0;x<PW;x+=g) for(let y=0;y<PH;y+=g) h += `<rect x="${mx(x)}" y="${my(y+g)}" width="${g*sc+0.5}" height="${g*sc+0.5}" fill="${col(Z(x+g/2, y+g/2))}" opacity="${kD}"/>`; }
+    for(let i=0;i<n;i++){ const p = path[i]; h += `<circle cx="${mx(p[0])}" cy="${my(p[1])}" r="2.6" fill="#3fd0ff" opacity="${1 - 0.6*kD}"/>`; }
+    if(n > 1 && kP < 1){ const p = path[n-1]; h += `<g transform="translate(${mx(p[0])},${my(p[1])})"><line y2="-22" stroke="#fff" stroke-width="3"/><ellipse cy="-24" rx="9" ry="4" fill="#ffc940"/></g>`; }
+    if(kD > 0.9){ const leg = d3.range(23.2, 26.5, 0.4); leg.forEach((z,i) => h += `<rect x="${mx(PW)+20}" y="${my(PH) + i*30}" width="26" height="30" fill="${col(z)}"/><text x="${mx(PW)+52}" y="${my(PH) + i*30 + 20}" fill="#cfd8e6" font-size="14">${z.toFixed(1).replace('.',',')} m</text>`); }
+    const ha = (PW*PH/10000).toFixed(0), min = Math.round(n*6/60);
+    h += `<text x="${mx(0)}" y="${my(PH) - 14}" fill="#b4c0d4" font-size="17">Parcelă ${PW} × ${PH} m (${ha} ha) · ${n} puncte RTK · ~${min} min de teren (≈ 6 s / punct)</text>`;
+    return h;
+  }
+  // nivelare: plan de proiect cu panta 1 ‰ pe x
+  const D0 = (x, y) => 24.4 + 0.001*(x - 300);
+  function sceneB(f){
+    let h = `<rect x="${mx(0)}" y="${my(PH)}" width="${PW*sc}" height="${PH*sc}" fill="#1a1f2a" stroke="#2f4566"/>`;
+    const cf = d3.scaleLinear().domain([-0.6, 0, 0.6]).range(['#2f7dff', '#e8eef8', '#e2283a']).clamp(true);
+    const lanes = 10, lw = PH/lanes, k = seg(f, 0.05, 0.85, x=>x)*lanes, g = 12;
+    for(let x=0;x<PW;x+=g) for(let y=0;y<PH;y+=g){ const lane = Math.floor(y/lw), prog = k - lane, xx = (lane%2 ? PW - x : x)/PW;
+      const done = prog >= 1 || (prog > 0 && xx < prog); const dz = done ? 0.02*Math.sin(x*y) : Z(x+g/2, y+g/2) - D0(x+g/2, y+g/2);
+      h += `<rect x="${mx(x)}" y="${my(y+g)}" width="${g*sc+0.5}" height="${g*sc+0.5}" fill="${cf(dz)}"/>`; }
+    // utilajul
+    const lane = Math.min(lanes-1, Math.floor(k)), pr = k - lane, xx = lane%2 ? PW*(1 - pr) : PW*pr, yy = lane*lw + lw/2;
+    if(k < lanes) h += `<g transform="translate(${mx(xx)},${my(yy)}) rotate(${lane%2 ? 180 : 0})"><rect x="-26" y="-14" width="40" height="28" rx="4" fill="#ffc940" stroke="#000"/><rect x="14" y="-18" width="12" height="36" fill="#666"/><circle cx="-14" cy="-20" r="5" fill="#fff"/><circle cx="-14" cy="20" r="5" fill="#fff"/></g>`;
+    [['săpătură', 0.5], ['la cotă', 0], ['umplutură', -0.5]].forEach(([t, v], i) => h += `<rect x="${mx(PW)+20}" y="${my(PH) + i*36}" width="26" height="30" fill="${cf(v)}"/><text x="${mx(PW)+52}" y="${my(PH) + i*36 + 20}" fill="#cfd8e6" font-size="15">${t}</text>`);
+    h += `<text x="${mx(0)}" y="${my(PH) - 14}" fill="#b4c0d4" font-size="17">Diferența teren – proiect (plan înclinat cu 1 ‰ pentru irigația prin scurgere la suprafață)</text>`;
+    return h;
+  }
+  // monitorizare: sectiune prin dig, 3 epoci
+  function sceneC(f){
+    const bx = 120, by = 520, s = 9;
+    let h = `<rect x="0" y="${by}" width="1000" height="160" fill="#1d2a20"/><path d="M ${bx} ${by} L ${bx + 25*s} ${by - 6*s} L ${bx + 35*s} ${by - 6*s} L ${bx + 70*s} ${by} Z" fill="#6b5a3a" stroke="#c9a46a" stroke-width="2"/>
+      <path d="M ${bx + 70*s} ${by} L 1000 ${by}" stroke="#4aa3ff" stroke-width="2"/><rect x="${bx + 52*s}" y="${by - 2.8*s}" width="${1000 - bx - 52*s}" height="${2.8*s}" fill="rgba(60,130,240,.4)"/>
+      <text x="${bx + 75*s}" y="${by - 3.4*s}" fill="#9fdcff" font-size="16">apă</text><text x="${bx + 30*s}" y="${by + 30}" fill="#c9a46a" font-size="16" text-anchor="middle">secțiune prin dig</text>`;
+    const P = [[bx + 26*s, by - 6*s, 0.006, -0.014], [bx + 34*s, by - 6*s, 0.010, -0.021], [bx + 48*s, by - 2.6*s, 0.016, -0.031], [bx + 12*s, by - 2.9*s, 0.003, -0.008]], EX = 1500;
+    const ep = Math.min(2, Math.floor(seg(f, 0.1, 0.85, x=>x)*3));
+    P.forEach(([x, y, dx, dz], i) => { const k = ep/2;
+      h += `<g transform="translate(${x},${y})"><line y2="-26" stroke="#ddd" stroke-width="3"/><ellipse cy="-28" rx="9" ry="4" fill="#ffc940"/></g>`;
+      if(ep > 0) h += `<line x1="${x}" y1="${y}" x2="${x + dx*EX*k}" y2="${y - dz*EX*k}" stroke="#ff4d5e" stroke-width="4"/><circle cx="${x + dx*EX*k}" cy="${y - dz*EX*k}" r="5" fill="#ff4d5e"/>`;
+      h += `<text x="${x}" y="${y - 40}" fill="#fff" font-size="15" text-anchor="middle">M${i+1}</text>`; });
+    const yr = ['2024', '2025', '2026'][ep];
+    h += `<g transform="translate(40,70)"><rect width="560" height="${60 + P.length*30}" rx="10" fill="rgba(12,20,38,.92)" stroke="rgba(140,170,220,.35)"/>
+      <text x="16" y="30" fill="#ffc940" font-size="18" font-weight="700">Epoca de măsurare: ${yr} · deplasări față de 2024</text>`;
+    P.forEach(([x, y, dx, dz], i) => { const k = ep/2; h += `<text x="16" y="${62 + i*30}" fill="#e8eef8" font-size="16" font-family="Consolas">M${i+1}   orizontal ${(dx*k*1000).toFixed(0).padStart(3)} mm   tasare ${(dz*k*1000).toFixed(0).padStart(4)} mm</text>`; });
+    h += `</g><text x="40" y="650" fill="#ff8080" font-size="16">vectorii de deplasare sunt exagerați de ${EX} de ori</text>`;
+    return h;
+  }
+  const PN = [
+    {t:'Măsurători rapide și modele digitale ale terenului', b:`<p>Sistemele GNSS permit măsurători rapide pe suprafețe mari, reducând timpul și costurile lucrărilor de teren. Datele de altitudine și planimetrie se folosesc pentru <b>modele digitale ale terenului (DTM)</b> — baza proiectării rețelelor de canale de irigații.</p>`,
+     k:[['~ 6 s','pe punct (RTK)'], ['< 1 oră','pentru 24 ha, grilă 25 × 40 m'], ['1–2 cm','în plan'], ['2–3 cm','pe înălțime']]},
+    {t:'Nivelarea terenului cu ghidaj GNSS', b:`<p>Irigația prin scurgere la suprafață cere un teren cu <b>pantă uniformă</b>. Utilajul (gredere, screper) are antene GNSS RTK: compară continuu poziția lamei cu suprafața proiectată și o ridică sau o coboară automat.</p>`,
+     k:[['± 2–3 cm','abatere de la proiect'], ['1 ‰','pantă de proiect (exemplu)'], ['fără țăruși','ghidajul înlocuiește trasarea'], ['24/7','funcționare cu RTK']]},
+    {t:'Monitorizarea și întreținerea infrastructurii', b:`<p>Pe diguri, canale și stații de pompare se fixează puncte de monitorizare, măsurate periodic (epoci). Diferențele dintre epoci arată <b>deplasările și tasările</b>, ca intervențiile să se facă la timp.</p>`,
+     k:[['mm','precizie cu sesiuni statice lungi'], ['epoci','anuale sau după viituri'], ['3D','deplasări în plan și pe verticală'], ['alertă','la depășirea pragurilor']]}];
+  const DA = 14;
+  const clk = AnimUI.init({duration:3*DA, loop:true, phases:[
+    {t:0, text:'Cu un rover RTK, o parcelă de 24 ha se ridică <b>în mai puțin de o oră</b>: un punct la câteva secunde, pe benzi.'},
+    {t:9, text:'Punctele devin <b>modelul digital al terenului</b> — baza proiectului de irigații sau desecare.'},
+    {t:DA, text:'Harta diferențelor teren – proiect: roșu = de săpat, albastru = de umplut.'},
+    {t:DA + 3, text:'Utilajul cu <b>ghidaj GNSS</b> aduce terenul la cota proiectată, bandă cu bandă.'},
+    {t:2*DA, text:'Punctele de monitorizare pe dig sunt măsurate în <b>epoci</b> succesive.'},
+    {t:2*DA + 5, text:'Vectorii de deplasare arată <b>tasarea și alunecarea</b> digului spre apă — semnal pentru intervenție.'}]});
+  document.querySelectorAll('.opts button').forEach(b => b.onclick = () => clk.seek(+b.dataset.s*DA + 0.01));
+  let last = -1;
+  (function frame(){
+    const t = clk.update(), a = Math.min(2, Math.floor(t/DA)), f = (t - a*DA)/DA;
+    if(a !== last){ last = a; const P = PN[a];
+      pn.innerHTML = `<div style="color:var(--cyan);font-weight:700">APLICAȚIA ${a+1}</div><div class="tt">${P.t}</div>${P.b}<div class="kpi">${P.k.map(([v, l]) => `<div><b>${v}</b>${l}</div>`).join('')}</div>`;
+      document.querySelectorAll('.opts button').forEach(b => b.classList.toggle('on', +b.dataset.s === a)); }
+    sv.innerHTML = [sceneA, sceneB, sceneC][a](f);
+    requestAnimationFrame(frame);
+  })();
+})();
+</script>
+</body></html>

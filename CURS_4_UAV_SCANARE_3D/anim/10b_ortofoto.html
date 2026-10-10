@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ortofotoplanul</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/d3.min.js"></script><script src="../lib/anim-ui.js"></script><script src="../lib/teren.js"></script>
+<style>
+  #sv{position:absolute;left:16px;width:calc(66% - 20px);top:150px;height:calc(100vh - 300px)}
+  #cv{position:absolute;left:16px;width:calc(66% - 20px);top:150px;height:calc(100vh - 300px)}
+  #pn{right:20px;top:150px;width:calc(34% - 30px);bottom:150px;overflow:hidden;font-size:clamp(13px,1.08vw,19px)}
+  #pn .tt{font-size:1.35em;font-weight:700;margin:2px 0 8px}
+  #pn .f{font-family:Consolas,monospace;background:rgba(0,0,0,.28);border-radius:8px;padding:8px 10px;margin:6px 0;line-height:1.5}
+</style>
+</head><body>
+<div class="a-title">Pasul 7 — Ortofotoplanul<small>De ce o fotografie nu este o hartă · ortorectificarea pe DSM · mozaicarea cu linii de îmbinare și egalizarea culorilor</small></div>
+<div class="opts" style="flex-direction:row;top:100px;left:20px;right:auto"><button data-s="0" class="on">1 · Deplasarea din relief</button><button data-s="1">2 · Ortorectificarea</button><button data-s="2">3 · Mozaicul</button></div>
+<svg id="sv" viewBox="0 0 1000 640"></svg><canvas id="cv"></canvas>
+<div class="a-panel" id="pn"></div>
+<script>
+(function(){
+  const {seg, lerp, ease} = AnimUI, T = window.TEREN, svg = document.getElementById('sv'), cv = document.getElementById('cv'), cx = cv.getContext('2d'), pn = document.getElementById('pn');
+  // ---------- 1. deplasarea datorată reliefului (secțiune)
+  function act1(f){
+    const GY = 560, Cx = 120, Cy = 90, m = (GY - Cy - 12)/91;            // 91 m de altitudine
+    const bx = Cx + 60*m, hb = 10*m, w = 8*m;
+    let h = `<rect x="0" y="${GY}" width="1000" height="80" fill="#3a2e1f"/><line x1="0" y1="${GY}" x2="1000" y2="${GY}" stroke="#c9a46a" stroke-width="3"/>`;
+    const house = (X, Yg, sc) => `<rect x="${X - w*sc/2}" y="${Yg - hb*sc}" width="${w*sc}" height="${hb*sc}" fill="#6b7690" stroke="#cfd8e6"/><polygon points="${X - w*sc/2 - 3*sc},${Yg - hb*sc} ${X},${Yg - hb*sc - 2.5*m*sc} ${X + w*sc/2 + 3*sc},${Yg - hb*sc}" fill="#a8432f"/>`;
+    h += house(bx, GY, 1);
+    h += `<g transform="translate(${Cx},${Cy})"><rect x="-26" y="-18" width="52" height="30" rx="5" fill="#2b3442" stroke="#9fb4d0" stroke-width="2"/><line x1="-60" y1="34" x2="60" y2="34" stroke="#ffd84a" stroke-width="3"/></g>`;
+    h += `<line x1="${Cx}" y1="${Cy + 12}" x2="${Cx}" y2="${GY}" stroke="#fff" stroke-dasharray="6 6"/><text x="${Cx}" y="${GY + 26}" fill="#fff" font-size="17" text-anchor="middle">nadir</text><text x="${Cx + 10}" y="${(Cy + GY)/2}" fill="#fff" font-size="18">H = 91 m</text>`;
+    const k = seg(f, 0.1, 0.5), top = [bx + w/2, GY - hb], foot = [bx + w/2, GY], t = (GY - Cy - 12)/(top[1] - Cy - 12), gx = Cx + (top[0] - Cx)*t;
+    h += `<line x1="${Cx}" y1="${Cy + 12}" x2="${lerp(Cx, gx, k)}" y2="${lerp(Cy + 12, GY, k)}" stroke="#ff9d3c" stroke-width="2.5"/><line x1="${Cx}" y1="${Cy + 12}" x2="${lerp(Cx, foot[0], k)}" y2="${lerp(Cy + 12, foot[1], k)}" stroke="#3fd0ff" stroke-width="2.5"/>`;
+    h += `<line x1="${Cx}" y1="${GY + 46}" x2="${foot[0]}" y2="${GY + 46}" stroke="#b4c0d4"/><text x="${(Cx + foot[0])/2}" y="${GY + 66}" fill="#b4c0d4" font-size="16" text-anchor="middle">r = 60 m</text>`;
+    // lupa ×4 pe zona casei
+    const kz = seg(f, 0.5, 0.65), Z = 4, LX = 560, LY = 120, LW = 420, LH = 380, cxz = (foot[0] + gx)/2 - 8, cyz = GY - hb*0.45;
+    const zx = x => LX + LW/2 + (x - cxz)*Z, zy = y => LY + LH*0.5 + (y - cyz)*Z;
+    h += `<rect x="${cxz - LW/Z/2}" y="${cyz - LH*0.5/Z}" width="${LW/Z}" height="${LH/Z}" fill="none" stroke="#ffd84a" stroke-width="1.5" opacity="${kz}"/>`;
+    h += `<g opacity="${kz}"><rect x="${LX}" y="${LY}" width="${LW}" height="${LH}" rx="10" fill="#0b1426" stroke="#ffd84a" stroke-width="2"/><clipPath id="cz"><rect x="${LX}" y="${LY}" width="${LW}" height="${LH}" rx="10"/></clipPath><g clip-path="url(#cz)">
+      <rect x="${LX}" y="${zy(GY)}" width="${LW}" height="${LH}" fill="#3a2e1f"/><line x1="${LX}" y1="${zy(GY)}" x2="${LX + LW}" y2="${zy(GY)}" stroke="#c9a46a" stroke-width="3"/>
+      <rect x="${zx(bx - w/2)}" y="${zy(GY - hb)}" width="${w*Z}" height="${hb*Z}" fill="#6b7690" stroke="#cfd8e6" stroke-width="2"/>
+      <polygon points="${zx(bx - w/2 - 3)},${zy(GY - hb)} ${zx(bx)},${zy(GY - hb - 2.5*m)} ${zx(bx + w/2 + 3)},${zy(GY - hb)}" fill="#a8432f"/>
+      <line x1="${zx(Cx + (top[0] - Cx)*0.7)}" y1="${zy(Cy + 12 + (top[1] - Cy - 12)*0.7)}" x2="${zx(gx)}" y2="${zy(GY)}" stroke="#ff9d3c" stroke-width="3"/>
+      <line x1="${zx(Cx + (foot[0] - Cx)*0.7)}" y1="${zy(Cy + 12 + (foot[1] - Cy - 12)*0.7)}" x2="${zx(foot[0])}" y2="${zy(GY)}" stroke="#3fd0ff" stroke-width="3"/>
+      <circle cx="${zx(gx)}" cy="${zy(GY)}" r="8" fill="#ff9d3c"/><circle cx="${zx(foot[0])}" cy="${zy(GY)}" r="8" fill="#3fd0ff"/>
+      <text x="${zx(foot[0]) - 8}" y="${zy(GY) + 28}" fill="#3fd0ff" font-size="16" text-anchor="end">poziția reală</text>
+      <text x="${zx(gx) + 8}" y="${zy(GY) + 28}" fill="#ff9d3c" font-size="16">în fotografie</text>
+      <line x1="${zx(foot[0])}" y1="${zy(GY) + 44}" x2="${zx(gx)}" y2="${zy(GY) + 44}" stroke="#ffd84a" stroke-width="3"/><text x="${(zx(foot[0]) + zx(gx))/2}" y="${zy(GY) + 70}" fill="#ffd84a" font-size="22" font-weight="700" text-anchor="middle">d ≈ 6,6 m</text>
+      <text x="${zx(bx + w/2) + 10}" y="${zy(GY - hb/2)}" fill="#cfd8e6" font-size="16">h = 10 m</text></g>
+      <text x="${LX + 12}" y="${LY + 26}" fill="#ffd84a" font-size="16" font-weight="700">detaliu ×4</text></g>`;
+    return h;
+  }
+  // ---------- 2. fotografia brută → ortofotoplan (vedere de sus)
+  const X0 = 560, Y0 = 30, WW = 220, HH = 150, NAD = [600, 95], HF = 91;          // nadirul fotografiei, la marginea satului
+  const base = (() => { const px = 3, c = document.createElement('canvas'); c.width = WW*px; c.height = HH*px; const x = c.getContext('2d'), id = x.createImageData(c.width, c.height);
+    for(let j=0;j<c.height;j++) for(let i=0;i<c.width;i++){ const X = X0 + (i + 0.5)/px, Y = Y0 + HH - (j + 0.5)/px; let col = T.rgb(X, Y);
+      if(T.house(X, Y)) col = [0.62, 0.6, 0.52]; else if(T.tree(X, Y) > 1) col = [0.40, 0.50, 0.24];
+      const n = 0.9 + ((i*7 + j*13) % 17)/80, k = 4*(j*c.width + i); id.data[k] = col[0]*255*n; id.data[k+1] = col[1]*255*n; id.data[k+2] = col[2]*255*n; id.data[k+3] = 255; }
+    x.putImageData(id, 0, 0); return c; })();
+  const HS = T.HOUSES.filter(h => h.x > X0 && h.x < X0 + WW && h.y > Y0 && h.y < Y0 + HH), TR = T.TREES.filter(t => t.x > X0 && t.x < X0 + WW && t.y > Y0 && t.y < Y0 + HH);
+  function act2(f){
+    const W = cv.clientWidth, Hh = cv.clientHeight, dpr = Math.min(2, devicePixelRatio || 1); if(cv.width !== W*dpr){ cv.width = W*dpr; cv.height = Hh*dpr; }
+    cx.setTransform(dpr, 0, 0, dpr, 0, 0); cx.clearRect(0, 0, W, Hh);
+    const s = Math.min(W/WW, Hh/HH), ox = (W - WW*s)/2, oy = (Hh - HH*s)/2, P = (x, y) => [ox + (x - X0)*s, oy + (Y0 + HH - y)*s];
+    const k = ease(seg(f, 0.35, 0.75));                                    // 0 = fotografie brută, 1 = ortofotoplan
+    cx.drawImage(base, ox, oy, WW*s, HH*s);
+    const disp = (x, y, hgt) => { const fct = (1 - k)*hgt/(HF - hgt); return [x + (x - NAD[0])*fct, y + (y - NAD[1])*fct]; };
+    // arbori: umbra trunchiului + coroana deplasată
+    TR.forEach(t => { const [tx, ty] = disp(t.x, t.y, t.h*0.8), a = P(t.x, t.y), b = P(tx, ty);
+      cx.strokeStyle = '#4a3420'; cx.lineWidth = Math.max(1, 0.5*s); cx.beginPath(); cx.moveTo(...a); cx.lineTo(...b); cx.stroke();
+      cx.fillStyle = '#21522a'; cx.beginPath(); cx.arc(b[0], b[1], t.r*s, 0, 7); cx.fill(); cx.fillStyle = 'rgba(70,140,70,.5)'; cx.beginPath(); cx.arc(b[0] - t.r*s*0.25, b[1] - t.r*s*0.25, t.r*s*0.55, 0, 7); cx.fill(); });
+    // case: pereți (între amprentă și acoperișul deplasat) + acoperiș
+    HS.slice().sort((p, q) => Math.hypot(p.x - NAD[0], p.y - NAD[1]) - Math.hypot(q.x - NAD[0], q.y - NAD[1])).forEach(hs => {
+      const c = Math.cos(hs.rot), sn = Math.sin(hs.rot), cor = [[-1,-1],[1,-1],[1,1],[-1,1]].map(([a, b]) => [hs.x + a*hs.w/2*c - b*hs.l/2*sn, hs.y + a*hs.w/2*sn + b*hs.l/2*c]);
+      const top = cor.map(([x, y]) => disp(x, y, hs.h + 2.5));
+      for(let i=0;i<4;i++){ const a1 = P(...cor[i]), a2 = P(...cor[(i+1)%4]), b2 = P(...top[(i+1)%4]), b1 = P(...top[i]);
+        cx.fillStyle = i % 2 ? '#d9d2bf' : '#bfb7a3'; cx.beginPath(); cx.moveTo(...a1); cx.lineTo(...a2); cx.lineTo(...b2); cx.lineTo(...b1); cx.closePath(); cx.fill(); }
+      cx.fillStyle = '#a8432f'; cx.beginPath(); top.forEach((q, i) => i ? cx.lineTo(...P(...q)) : cx.moveTo(...P(...q))); cx.closePath(); cx.fill();
+      cx.strokeStyle = '#6e2617'; cx.lineWidth = 1; cx.stroke();
+      if(k > 0.98){ cx.strokeStyle = '#3fd0ff'; cx.lineWidth = 1.5; cx.beginPath(); cor.forEach((q, i) => i ? cx.lineTo(...P(...q)) : cx.moveTo(...P(...q))); cx.closePath(); cx.stroke(); } });
+    const n = P(...NAD); cx.strokeStyle = '#ffd84a'; cx.lineWidth = 2; cx.beginPath(); cx.moveTo(n[0] - 12, n[1]); cx.lineTo(n[0] + 12, n[1]); cx.moveTo(n[0], n[1] - 12); cx.lineTo(n[0], n[1] + 12); cx.stroke();
+    cx.fillStyle = '#fff'; cx.font = '700 20px Segoe UI'; cx.fillText(k < 0.5 ? 'fotografia brută (proiecție centrală)' : 'ortofotoplan (proiecție ortogonală)', ox + 10, oy + 28);
+    cx.font = '15px Segoe UI'; cx.fillStyle = '#ffd84a'; cx.fillText('+ nadir', n[0] + 14, n[1] - 8);
+  }
+  // ---------- 3. mozaicul
+  const ORT = T.orto(1);
+  const SH = [[180, 330, 1.18, [1.1, 1.0, 0.9]], [300, 300, 0.86, [0.95, 1.0, 1.1]], [420, 340, 1.1, [1.05, 1.05, 0.9]], [540, 310, 0.9, [0.9, 1.0, 1.05]], [240, 210, 0.95, [1.0, 0.95, 0.95]],
+              [370, 190, 1.15, [1.1, 1.0, 1.0]], [500, 210, 0.85, [0.95, 1.05, 1.0]], [620, 200, 1.05, [1.0, 1.0, 0.9]]];
+  const vor = d3.Delaunay.from(SH, p => p[0], p => p[1]).voronoi([120, 140, 680, 400]);
+  function act3(f){
+    const W = cv.clientWidth, Hh = cv.clientHeight, dpr = Math.min(2, devicePixelRatio || 1); if(cv.width !== W*dpr){ cv.width = W*dpr; cv.height = Hh*dpr; }
+    cx.setTransform(dpr, 0, 0, dpr, 0, 0); cx.clearRect(0, 0, W, Hh);
+    const AX0 = 120, AY0 = 140, AW = 560, AH = 260, s = Math.min(W/AW, Hh/AH), ox = (W - AW*s)/2, oy = (Hh - AH*s)/2, P = (x, y) => [ox + (x - AX0)*s, oy + (AY0 + AH - y)*s];
+    const kIn = seg(f, 0.02, 0.35, x=>x), kSeam = seg(f, 0.38, 0.55), kBal = seg(f, 0.6, 0.85);
+    SH.forEach((p, i) => { if(i/SH.length > kIn) return;
+      cx.save(); cx.beginPath();
+      if(kSeam > 0){ const cell = vor.cellPolygon(i); const fw = 137/2, fh = 91/2;
+        // forma regiunii: de la dreptunghiul fotografiei spre celula Voronoi
+        const rect = [[p[0] - fw, p[1] - fh], [p[0] + fw, p[1] - fh], [p[0] + fw, p[1] + fh], [p[0] - fw, p[1] + fh]];
+        if(kSeam < 1){ rect.forEach((q, j) => j ? cx.lineTo(...P(...q)) : cx.moveTo(...P(...q))); } else cell.forEach((q, j) => j ? cx.lineTo(...P(...q)) : cx.moveTo(...P(...q)));
+      } else { const fw = 137/2, fh = 91/2; [[p[0] - fw, p[1] - fh], [p[0] + fw, p[1] - fh], [p[0] + fw, p[1] + fh], [p[0] - fw, p[1] + fh]].forEach((q, j) => j ? cx.lineTo(...P(...q)) : cx.moveTo(...P(...q))); }
+      cx.closePath(); cx.clip();
+      const b = lerp(p[2], 1, kBal), tint = p[3].map(v => lerp(v, 1, kBal));
+      cx.filter = `brightness(${b}) sepia(${(1 - kBal)*0.25}) saturate(${lerp(tint[1], 1, 0.5)})`;
+      const a = P(0, T.H); cx.drawImage(ORT, a[0], a[1], T.W*s, T.H*s); cx.filter = 'none'; cx.restore();
+      if(kSeam < 1){ cx.strokeStyle = 'rgba(255,255,255,.7)'; cx.lineWidth = 1.5; cx.strokeRect(...P(p[0] - 68.5, p[1] + 45.5), 137*s, 91*s); } });
+    if(kSeam >= 1 && kBal < 1){ cx.strokeStyle = `rgba(255,216,74,${1 - kBal})`; cx.lineWidth = 2.5; SH.forEach((p, i) => { const cell = vor.cellPolygon(i); cx.beginPath(); cell.forEach((q, j) => j ? cx.lineTo(...P(...q)) : cx.moveTo(...P(...q))); cx.stroke(); }); }
+    if(f > 0.88){ // rețea de coordonate și scară
+      cx.strokeStyle = 'rgba(255,255,255,.55)'; cx.lineWidth = 1; cx.font = '13px Segoe UI'; cx.fillStyle = '#fff';
+      for(let x = 200; x < 700; x += 100){ const a = P(x, AY0), b = P(x, AY0 + AH); cx.beginPath(); cx.moveTo(...a); cx.lineTo(...b); cx.stroke(); cx.fillText('Y ' + (584000 + x).toLocaleString('ro-RO'), a[0] + 4, a[1] - 6); }
+      for(let y = 200; y < 400; y += 100){ const a = P(AX0, y), b = P(AX0 + AW, y); cx.beginPath(); cx.moveTo(...a); cx.lineTo(...b); cx.stroke(); cx.fillText('X ' + (330000 + y).toLocaleString('ro-RO'), a[0] + 6, a[1] - 6); }
+      const sb = P(AX0 + 20, AY0 + 14); cx.fillStyle = '#fff'; cx.fillRect(sb[0], sb[1], 100*s, 6); cx.fillText('100 m', sb[0], sb[1] - 6); }
+  }
+  const PN = [`<div class="tt">Deplasarea datorată reliefului</div><p>Fotografia este o <b>proiecție centrală</b>: tot ce are înălțime este împins radial, dinspre nadir spre margini.</p><div class="f">d = r × h / H<br>= 60 × 10 / 91 ≈ 6,6 m</div><p style="color:var(--muted)">r — distanța față de nadir · h — înălțimea obiectului · H — altitudinea de zbor. La 6,6 m, o casă apare „culcată" peste curtea vecinului.</p>`,
+    `<div class="tt">Ortorectificarea</div><p>Fiecare pixel este readus pe poziția lui reală folosind <b>modelul suprafeței</b>: acoperișurile se așază peste amprente, pereții dispar.</p><p><b>True ortho</b> — rectificat pe DSM: clădirile drepte. Rectificat doar pe DTM, terenul e corect, dar clădirile și arborii rămân înclinați.</p>`,
+    `<div class="tt">Mozaicul</div><p>Din sute de fotografii rectificate se alege, pentru fiecare zonă, imaginea cea mai apropiată de nadir. Între ele se trasează <b>linii de îmbinare</b> (de preferat pe terenuri libere, nu peste clădiri).</p><p>Se <b>egalizează culorile</b> între imagini, apoi se exportă ca GeoTIFF în Stereo 70, cu GSD-ul zborului.</p>`];
+  const T0 = [0, 9, 20], DUR = [9, 11, 14];
+  const clk = AnimUI.init({duration:34, loop:true, phases:[
+    {t:0, text:'Acoperișul unei case de 10 m, aflată la 60 m de nadir, apare în fotografie deplasat cu <b>~6,6 m</b>.'},
+    {t:9, text:'În fotografia brută casele „se culcă" spre exterior. <b>Ortorectificarea</b> pe DSM le readuce pe amprenta lor.'},
+    {t:20, text:'<b>Mozaicul</b>: imaginile se decupează pe linii de îmbinare, culorile se egalizează — ortofotoplanul final, georeferențiat.'}]});
+  document.querySelectorAll('.opts button').forEach(b => b.onclick = () => clk.seek(T0[+b.dataset.s] + 0.01));
+  let last = -1;
+  (function frame(){ const t = clk.update(), a = T0.reduce((acc, v, i) => t >= v ? i : acc, 0), f = (t - T0[a])/DUR[a];
+    if(a !== last){ last = a; pn.innerHTML = `<div style="color:var(--cyan);font-weight:700">ORTOFOTOPLANUL ${a+1}/3</div>` + PN[a]; document.querySelectorAll('.opts button').forEach(b => b.classList.toggle('on', +b.dataset.s === a)); }
+    svg.style.display = a === 0 ? 'block' : 'none'; cv.style.display = a === 0 ? 'none' : 'block';
+    if(a === 0) svg.innerHTML = act1(f); else if(a === 1) act2(f); else act3(f);
+    requestAnimationFrame(frame); })();
+})();
+</script>
+</body></html>

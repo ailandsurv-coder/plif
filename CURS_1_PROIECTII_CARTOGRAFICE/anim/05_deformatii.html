@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Deformațiile Stereo 70 pe teritoriul României</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/d3.min.js"></script><script src="../lib/world-data.js"></script>
+<script src="../lib/anim-ui.js"></script><script src="../lib/stereo70.js"></script>
+<style>
+  #wrap{position:absolute;left:0;right:390px;top:100px;bottom:150px}
+  #wrap canvas,#wrap svg{position:absolute;left:0;top:0}
+  #info{right:20px;top:100px;width:360px}
+  #info .big{font-size:2.1em;font-weight:700;font-variant-numeric:tabular-nums}
+  #leg{display:block;margin-top:10px}
+  @media (max-width:900px){#wrap{right:0}#info{display:none}}
+</style>
+</head><body>
+<div class="a-title">Alegerea proiecției pentru România — deformațiile Stereo 70<small>Deformația liniară relativă (m/km) calculată riguros în fiecare punct · mișcă mouse-ul pe hartă</small></div>
+<div id="wrap"><canvas id="cv"></canvas><svg id="sv"></svg></div>
+<div class="a-panel" id="info">
+  <h4>Punctul de sub cursor</h4>
+  <div id="ro" style="min-height:190px;color:var(--muted)">Mișcă mouse-ul peste hartă.</div>
+  <svg id="leg" width="320" height="64"></svg>
+</div>
+<script>
+(function(){
+  const S = window.Stereo70, wrap = document.getElementById('wrap'), cv = document.getElementById('cv'), sv = d3.select('#sv');
+  const polys = (ROMANIA.type === 'Polygon' ? [ROMANIA.coordinates] : ROMANIA.coordinates);
+  const ring = polys.map(p => p[0]).sort((a,b)=>b.length-a.length)[0].map(p => S.forward(p[1], p[0]));
+  const vec = Object.entries(VECINI).map(([k,g]) => ((g.type === 'Polygon' ? [g.coordinates] : g.coordinates)).map(p => p[0].map(q => S.forward(q[1], q[0]))));
+  const orase = [['București',44.4268,26.1025],['Cluj-Napoca',46.7712,23.6236],['Iași',47.1585,27.6014],['Timișoara',45.7489,21.2087],['Constanța',44.1733,28.6593],['Brașov',45.6427,25.5887],['Craiova',44.3302,23.7949],['Suceava',47.6514,26.2556],['Oradea',47.0465,21.9189],['Satu Mare',47.79,22.885],['Tulcea',45.1716,28.7914],['Drobeta-Tr. Severin',44.6369,22.6597],['Sibiu',45.7983,24.1256],['Galați',45.4353,28.008]]
+    .map(([n,la,lo]) => Object.assign({n}, S.forward(la, lo)));
+  // culori: albastru (micsorare) -> alb (0) -> portocaliu/rosu (marire)
+  const col = d3.scaleLinear().domain([-0.25, 0, 0.3, 0.7]).range(['#2f7dff', '#f2f6ff', '#ff9d3c', '#e2283a']).clamp(true);
+  const NMIN = 180000, NMAX = 800000, EMIN = 90000, EMAX = 920000;
+  let sc, ox, oy, W, H, img = null;
+  const X = e => ox + (e - EMIN)*sc, Y = n => oy + (NMAX - n)*sc;
+  const inv = (x, y) => ({E: EMIN + (x - ox)/sc, N: NMAX - (y - oy)/sc});
+
+  function layout(){
+    W = wrap.clientWidth; H = wrap.clientHeight;
+    sc = Math.min(W/(EMAX - EMIN), H/(NMAX - NMIN)); ox = (W - (EMAX-EMIN)*sc)/2; oy = (H - (NMAX-NMIN)*sc)/2;
+    const dpr = Math.min(2, devicePixelRatio || 1);
+    cv.width = W*dpr; cv.height = H*dpr; cv.style.width = W+'px'; cv.style.height = H+'px'; cv.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
+    sv.attr('width', W).attr('height', H);
+    // raster de deformatii (o singura data per dimensiune)
+    const g = 4, nx = Math.ceil(W/g), ny = Math.ceil(H/g), vals = new Float64Array(nx*ny);
+    for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){ const p = inv(i*g + g/2, j*g + g/2); vals[j*nx+i] = S.deformMkm(p.N, p.E); }
+    img = {g, nx, ny, vals};
+    const off = document.createElement('canvas'); off.width = nx; off.height = ny;
+    const oc = off.getContext('2d'), id = oc.createImageData(nx, ny);
+    for(let i=0;i<nx*ny;i++){ const c = d3.rgb(col(vals[i])); id.data[4*i] = c.r; id.data[4*i+1] = c.g; id.data[4*i+2] = c.b; id.data[4*i+3] = 255; }
+    oc.putImageData(id, 0, 0); img.off = off;
+    // izolinii
+    const th = d3.range(-0.2, 0.71, 0.1).map(v => +v.toFixed(2));
+    img.cont = d3.contours().size([nx, ny]).thresholds(th)(Array.from(vals));
+    draw(lastK, lastC);
+  }
+  const ringPath = ctx => { ctx.beginPath(); ring.forEach((p,i) => i ? ctx.lineTo(X(p.E), Y(p.N)) : ctx.moveTo(X(p.E), Y(p.N))); ctx.closePath(); };
+
+  let lastK = 0, lastC = 0;
+  function draw(k, kc){
+    lastK = k; lastC = kc;
+    const ctx = cv.getContext('2d'); ctx.clearRect(0,0,W,H);
+    // vecini
+    ctx.fillStyle = '#16233f'; ctx.strokeStyle = '#2d4372'; ctx.lineWidth = 1;
+    vec.forEach(c => c.forEach(r => { ctx.beginPath(); r.forEach((p,i) => i ? ctx.lineTo(X(p.E), Y(p.N)) : ctx.moveTo(X(p.E), Y(p.N))); ctx.closePath(); ctx.fill(); ctx.stroke(); }));
+    // retea km
+    ctx.strokeStyle = 'rgba(120,150,210,.22)';
+    for(let e=100000; e<=900000; e+=100000){ ctx.beginPath(); ctx.moveTo(X(e), Y(NMAX)); ctx.lineTo(X(e), Y(NMIN)); ctx.stroke(); }
+    for(let n=200000; n<=800000; n+=100000){ ctx.beginPath(); ctx.moveTo(X(EMIN), Y(n)); ctx.lineTo(X(EMAX), Y(n)); ctx.stroke(); }
+    // raster in interiorul Romaniei, dezvaluit radial
+    ctx.save(); ringPath(ctx); ctx.clip();
+    const rmax = 450000*k, cx = X(500000), cy = Y(500000);
+    ctx.beginPath(); ctx.arc(cx, cy, rmax*sc, 0, 2*Math.PI); ctx.clip();
+    const {g, nx, ny} = img;
+    ctx.imageSmoothingEnabled = true; ctx.drawImage(img.off, 0, 0, nx*g, ny*g);
+    ctx.restore();
+    ctx.strokeStyle = '#ffc940'; ctx.lineWidth = 2.5; ringPath(ctx); ctx.stroke();
+
+    // SVG: izolinii, axe, orase
+    sv.selectAll('*').remove();
+    const path = d3.geoPath(d3.geoTransform({point(x, y){ this.stream.point(x*g, y*g); }}));
+    const clipId = 'clipRO';
+    sv.append('clipPath').attr('id', clipId).append('path').attr('d', 'M' + ring.map(p => X(p.E)+','+Y(p.N)).join('L') + 'Z');
+    const gc = sv.append('g').attr('clip-path', `url(#${clipId})`).attr('opacity', kc);
+    img.cont.forEach(c => gc.append('path').attr('d', path(c)).attr('fill', 'none')
+      .attr('stroke', Math.abs(c.value) < 1e-6 ? '#0a7a3d' : 'rgba(20,30,50,.55)').attr('stroke-width', Math.abs(c.value) < 1e-6 ? 3.5 : 1.2)
+      .attr('stroke-dasharray', Math.abs(c.value) < 1e-6 ? '9 5' : null));
+    // etichete izolinii pe raza spre est
+    if(kc > 0.5) [-0.2,-0.1,0,0.1,0.2,0.3,0.4].forEach(v => {
+      const d = 2*S.k0*S.R*Math.sqrt((1 + v/1000)/S.k0 - 1); if(!(d > 0) && v !== -0.25) return;
+      const ang = -0.62, x = X(500000 + d*Math.cos(ang)), y = Y(500000 + d*Math.sin(ang));
+      sv.append('text').attr('x', x).attr('y', y).attr('fill', '#0b1426').attr('font-size', 15).attr('font-weight', 700).attr('text-anchor','middle')
+        .attr('paint-order','stroke').attr('stroke','rgba(255,255,255,.8)').attr('stroke-width',3).text(v === 0 ? '0' : (v > 0 ? '+' : '−') + Math.abs(v).toFixed(1).replace('.', ','));
+    });
+    sv.append('line').attr('x1', X(500000)).attr('x2', X(500000)).attr('y1', Y(790000)).attr('y2', Y(190000)).attr('stroke','#ff6262').attr('stroke-width',1.5).attr('opacity',.8);
+    sv.append('line').attr('x1', X(100000)).attr('x2', X(910000)).attr('y1', Y(500000)).attr('y2', Y(500000)).attr('stroke','#ff6262').attr('stroke-width',1.5).attr('opacity',.8);
+    sv.append('text').attr('x', X(500000)+8).attr('y', Y(785000)).attr('fill','#ff6262').attr('font-size',18).attr('font-weight',700).text('X (N)');
+    sv.append('text').attr('x', X(905000)).attr('y', Y(500000)-8).attr('fill','#ff6262').attr('font-size',18).attr('font-weight',700).attr('text-anchor','end').text('Y (E)');
+    const og = sv.append('g').attr('opacity', kc);
+    orase.forEach(o => { og.append('circle').attr('cx', X(o.E)).attr('cy', Y(o.N)).attr('r', 4).attr('fill','#0b1426').attr('stroke','#fff').attr('stroke-width',1.5);
+      og.append('text').attr('x', X(o.E)+7).attr('y', Y(o.N)-6).attr('fill','#0b1426').attr('font-size',14).attr('font-weight',600)
+        .attr('paint-order','stroke').attr('stroke','rgba(255,255,255,.85)').attr('stroke-width',3).text(o.n); });
+    sv.append('circle').attr('id','cur').attr('r', 7).attr('fill','none').attr('stroke','#fff').attr('stroke-width',2.5).attr('display','none');
+  }
+
+  // legenda
+  (function(){
+    const L = d3.select('#leg'), w = 280, x = d3.scaleLinear().domain([-0.25, 0.7]).range([22, 22+w]);
+    const gr = L.append('defs').append('linearGradient').attr('id','lg');
+    d3.range(0, 1.001, 0.05).forEach(t => gr.append('stop').attr('offset', t).attr('stop-color', col(-0.25 + 0.95*t)));
+    L.append('rect').attr('x',22).attr('y',8).attr('width',w).attr('height',18).attr('fill','url(#lg)').attr('rx',3);
+    [-0.25,0,0.25,0.5,0.7].forEach(v => { L.append('line').attr('x1',x(v)).attr('x2',x(v)).attr('y1',26).attr('y2',32).attr('stroke','#b4c0d4');
+      L.append('text').attr('x',x(v)).attr('y',48).attr('fill','#b4c0d4').attr('font-size',13).attr('text-anchor','middle').text((v < 0 ? '−' : '') + Math.abs(v).toString().replace('.',',')); });
+    L.append('text').attr('x',22+w).attr('y',62).attr('fill','#b4c0d4').attr('font-size',12).attr('text-anchor','end').text('m/km');
+  })();
+
+  // citire sub cursor
+  const ro = document.getElementById('ro');
+  wrap.addEventListener('mousemove', e => {
+    const r = wrap.getBoundingClientRect(), p = inv(e.clientX - r.left, e.clientY - r.top);
+    const d = S.deformMkm(p.N, p.E), dist = Math.hypot(p.N - 500000, p.E - 500000)/1000;
+    sv.select('#cur').attr('display', null).attr('cx', e.clientX - r.left).attr('cy', e.clientY - r.top);
+    ro.innerHTML = `<div style="color:var(--muted)">X (Nord) = <b style="color:var(--text)">${Math.round(p.N).toLocaleString('ro-RO')}</b> m<br>Y (Est) = <b style="color:var(--text)">${Math.round(p.E).toLocaleString('ro-RO')}</b> m<br>distanța față de centru: <b style="color:var(--text)">${dist.toFixed(1).replace('.',',')} km</b></div>
+      <div class="big" style="color:${d < 0 ? '#5aa8ff' : '#ff9d3c'}">${d > 0 ? '+' : ''}${d.toFixed(3).replace('.',',')} m/km</div>
+      <div>1 000 m măsurați pe teren devin <b>${(1000 + d).toFixed(3).replace('.',',')} m</b> în planul Stereo 70.<br>Scara suprafețelor: 1 ha → <b>${(Math.pow(1 + d/1000, 2)*10000).toFixed(1).replace('.',',')} m²</b></div>`;
+  });
+  wrap.addEventListener('mouseleave', () => sv.select('#cur').attr('display','none'));
+
+  const clk = AnimUI.init({duration:14, loop:false, phases:[
+    {t:0, text:'Centrul proiecției (X = Y = 500 000 m) are deformația minimă: <b>−0,25 m/km</b> — lungimile din plan sunt mai mici decât cele reale.'},
+    {t:4, text:'Pe cercul de rază <b>201,7 km</b> (linia verde punctată) deformația este <b>zero</b>.'},
+    {t:8, text:'Spre extremități deformația crește până la <b>+0,6 m/km</b> (vest — Banat; est — Dobrogea și Delta Dunării). Mișcă mouse-ul pe hartă.'}]});
+  let lk = -1, lc = -1;
+  function frame(){
+    const t = clk.update(), k = AnimUI.seg(t, 0.3, 7.5, x => x), c = AnimUI.seg(t, 6, 9);
+    if(Math.abs(k - lk) > 0.004 || Math.abs(c - lc) > 0.02){ lk = k; lc = c; draw(k, c); }
+    requestAnimationFrame(frame);
+  }
+  window.addEventListener('resize', layout); layout(); frame();
+})();
+</script>
+</body></html>

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Comparator metode de ridicare</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/anim-ui.js"></script>
+<style>
+  #ctl{position:absolute;left:20px;top:110px;width:330px;font-size:clamp(13px,1.05vw,18px)}
+  #ctl label{display:flex;justify-content:space-between;margin:10px 0 2px;color:var(--muted)}#ctl label b{color:var(--gold);font-size:1.2em}
+  #ctl input[type=range]{width:100%}
+  #ctl .seg{display:flex;gap:4px;margin-top:4px}#ctl .seg button{flex:1;background:#16233f;color:#fff;border:1px solid var(--line);border-radius:8px;padding:6px 2px;font-size:.85em;cursor:pointer;font-family:inherit}
+  #ctl .seg button.on{background:var(--cyan);color:#04111f;font-weight:700}
+  #sv{position:absolute;left:370px;right:20px;top:110px;height:calc(100vh - 270px)}#sv svg{width:100%;height:100%}
+</style>
+</head><body>
+<div class="a-title">Avantajele UAV — comparația metodelor de ridicare<small>Durata estimată (teren + birou) pentru o ridicare topografică detaliată · valori orientative, depind de echipă, relief și detaliile cerute</small></div>
+<div class="a-panel" id="ctl">
+  <label>Suprafața <b id="av"></b></label><input id="ar" type="range" min="1" max="500" step="1" value="40">
+  <div style="margin-top:12px;color:var(--muted)">Terenul</div>
+  <div class="seg" id="tr"><button data-t="0" class="on">liber</button><button data-t="1">cu pâlcuri de arbori</button><button data-t="2">împădurit</button></div>
+  <div id="nt" style="margin-top:14px;color:var(--muted);font-size:.9em"></div>
+</div>
+<div id="sv"><svg id="svg" viewBox="0 0 1100 620"></svg></div>
+<script>
+(function(){
+  const {seg, lerp, ease} = AnimUI, svg = document.getElementById('svg');
+  // productivitate orientativă (ha / zi de teren) pe tipuri de teren; birou (zile / 100 ha); mobilizare (zile)
+  const M = [
+    {n:'Stație totală', c:'#b48cff', ha:[4, 3, 1.5], bir:[2.5, 2.5, 2.5], mob:0.5, dens:'1 punct / 100–400 m²', z:'1–2 cm', veg:[1, 1, 1]},
+    {n:'GNSS RTK', c:'#3fd0ff', ha:[12, 7, 2], bir:[1.5, 1.5, 1.5], mob:0.5, dens:'1 punct / 100–400 m²', z:'2–3 cm', veg:[1, 0.6, 0.2]},
+    {n:'UAV fotogrametrie', c:'#ffc940', ha:[100, 100, 100], bir:[1.5, 1.5, 1.5], mob:1, dens:'~1 600 puncte / m² (GSD 2,5 cm)', z:'3–5 cm (teren liber)', veg:[1, 0.5, 0.1]},
+    {n:'UAV LiDAR', c:'#5be39a', ha:[150, 150, 150], bir:[2, 2, 2], mob:1, dens:'100–500 puncte / m²', z:'3–5 cm', veg:[1, 1, 0.9]}];
+  let A = 40, TR = 0, user = false;
+  const ar = document.getElementById('ar'), av = document.getElementById('av');
+  ar.oninput = e => { A = +e.target.value; user = true; clk.pause(); };
+  document.querySelectorAll('#tr button').forEach(b => b.onclick = () => { TR = +b.dataset.t; user = true; clk.pause(); document.querySelectorAll('#tr button').forEach(x => x.classList.toggle('on', x === b)); });
+  function draw(){
+    const R = M.map(m => { const field = m.mob + A/m.ha[TR], off = Math.max(0.5, A/100*m.bir[TR]); return {m, field, off, tot:field + off}; });
+    const mx = Math.max(...R.map(r => r.tot)), sc = 640/Math.max(2, mx);
+    let h = `<text x="0" y="30" fill="#fff" font-size="24" font-weight="700">${A} ha · teren ${['liber', 'cu pâlcuri de arbori', 'împădurit'][TR]}</text>`;
+    R.forEach((r, i) => { const y = 70 + i*130;
+      h += `<text x="0" y="${y + 30}" fill="${r.m.c}" font-size="22" font-weight="700">${r.m.n}</text>`;
+      h += `<rect x="240" y="${y + 8}" width="${r.field*sc}" height="34" rx="5" fill="${r.m.c}"/><rect x="${240 + r.field*sc}" y="${y + 8}" width="${r.off*sc}" height="34" rx="5" fill="${r.m.c}" opacity=".45"/>`;
+      h += `<text x="${250 + r.tot*sc}" y="${y + 32}" fill="#fff" font-size="20" font-weight="700">${r.tot < 10 ? r.tot.toFixed(1).replace('.', ',') : Math.round(r.tot)} zile</text>`;
+      h += `<text x="240" y="${y + 66}" fill="#b4c0d4" font-size="16">teren ${r.field.toFixed(1).replace('.', ',')} · birou ${r.off.toFixed(1).replace('.', ',')} · ${r.m.dens} · precizie Z ${r.m.z}</text>`;
+      const v = r.m.veg[TR], vc = v > 0.8 ? '#5be39a' : v > 0.4 ? '#ffc940' : '#ff6262', vt = v > 0.8 ? 'solul se măsoară sigur' : v > 0.4 ? 'sub arbori: completări cu alte metode' : 'sub arbori: solul nu se poate măsura';
+      h += `<circle cx="248" cy="${y + 92}" r="7" fill="${vc}"/><text x="262" y="${y + 98}" fill="${vc}" font-size="16">${vt}</text>`; });
+    h += `<rect x="240" y="596" width="22" height="14" fill="#9fb4d0"/><text x="268" y="608" fill="#b4c0d4" font-size="15">zile de teren</text><rect x="400" y="596" width="22" height="14" fill="#9fb4d0" opacity=".45"/><text x="428" y="608" fill="#b4c0d4" font-size="15">zile de birou (procesare, desenare)</text>`;
+    svg.innerHTML = h; av.textContent = A + ' ha'; ar.value = A;
+    const best = R.slice().sort((a, b) => a.tot - b.tot)[0];
+    document.getElementById('nt').innerHTML = A < 5 ? 'Pe suprafețe mici, metodele clasice sunt la fel de rapide — și nu cer zbor, autorizări și procesare.' :
+      TR === 2 ? 'În pădure, doar LiDAR-ul (sau măsurătorile clasice, lent) dă solul de sub coronament.' : `Cel mai rapid aici: <b style="color:#fff">${best.m.n}</b>. Avantajul dronelor crește odată cu suprafața.`;
+  }
+  const clk = AnimUI.init({duration:24, loop:true, phases:[
+    {t:0, text:'Pe suprafețe mici, <b>stația totală</b> și <b>GNSS-ul</b> rămân competitive.'},
+    {t:8, text:'De la câteva zeci de hectare, <b>drona</b> câștigă clar: o zi de zbor înlocuiește săptămâni de teren.'},
+    {t:16, text:'Tipul terenului contează: sub arbori, numai <b>LiDAR</b>-ul păstrează precizia — schimbă terenul din panou.'}]});
+  (function frame(){ const t = clk.update();
+    if(!user){ A = Math.round(lerp(2, 300, ease(seg(t, 0.5, 14)))); const tt = t > 16 ? Math.min(2, Math.floor((t - 16)/2.7)) : 0;
+      if(tt !== TR){ TR = tt; document.querySelectorAll('#tr button').forEach(x => x.classList.toggle('on', +x.dataset.t === TR)); } }
+    draw(); requestAnimationFrame(frame); })();
+})();
+</script>
+</body></html>

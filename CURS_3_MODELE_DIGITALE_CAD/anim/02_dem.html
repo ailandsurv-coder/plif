@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Modelul digital al terenului</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/three.min.js"></script><script src="../lib/OrbitControls.js"></script><script src="../lib/d3.min.js"></script>
+<script src="../lib/anim-ui.js"></script><script src="../lib/teren.js"></script>
+<style>#leg{left:24px;top:120px;width:300px;font-size:clamp(12px,.95vw,16px)}#leg .r{display:flex;align-items:center;gap:8px;margin:3px 0}#leg i{width:26px;height:14px;border-radius:3px;display:inline-block}</style>
+</head><body><div id="stage"></div>
+<div class="a-title">Modelul digital al terenului<small>Puncte măsurate → rețea de triunghiuri (TIN) → model (DEM) · DSM și DTM · pante și curgerea apei — exagerare verticală ×3</small></div>
+<div class="opts"><button data-s="0" class="on">1 · Puncte și TIN</button><button data-s="1">2 · DEM</button><button data-s="2">3 · DSM → DTM</button><button data-s="3">4 · Pante și scurgere</button></div>
+<div class="a-panel" id="leg"></div>
+<div class="hint" style="top:240px;bottom:auto">Trage cu mouse-ul pentru a roti · rotița = zoom</div>
+<script>
+(function(){
+  const {seg, lerp, ease} = AnimUI, T = window.TEREN, EX = 3, Z0 = 60;
+  const K = T.scene(document.getElementById('stage'), {camPos:[220, 470, -700]});
+  // plasa: pozitiile DSM si DTM, culori hipsometrice si de panta
+  const NX = 200, NY = 125, gD = T.mesh(T.surface, {nx:NX, ny:NY, ex:EX, z0:Z0}), gT = T.mesh(T.ground, {nx:NX, ny:NY, ex:EX, z0:Z0});
+  const pD = gD.attributes.position.array.slice(), pT = gT.attributes.position.array.slice(), cH = gT.attributes.color.array.slice();
+  // culori pentru DSM: arbori verde închis, case roșu-cărămiziu
+  const cS = new Float32Array(cH.length); let k = 0;
+  for(let j=0;j<=NY;j++) for(let i=0;i<=NX;i++){ const x = T.W*i/NX, y = T.H*j/NY, c = T.cls(x, y);
+    const v = c === 5 ? [0.10,0.36,0.16] : c === 6 ? [0.72,0.30,0.22] : c === 9 ? [0.20,0.45,0.80] : T.hyps(T.ground(x, y)); cS.set(v, 3*k); k++; }
+  // panta (%) pe DTM
+  const cP = new Float32Array(cH.length); k = 0;
+  const slopeCol = d3.scaleLinear().domain([0, 2, 6, 15, 35]).range(['#2f9e44','#a8d65a','#f2d24b','#f08a3c','#d6263a']).clamp(true);
+  for(let j=0;j<=NY;j++) for(let i=0;i<=NX;i++){ const x = T.W*i/NX, y = T.H*j/NY, d = 2, gx = (T.ground(x+d, y) - T.ground(x-d, y))/(2*d), gy = (T.ground(x, y+d) - T.ground(x, y-d))/(2*d);
+    const c = d3.rgb(slopeCol(100*Math.hypot(gx, gy))); cP.set([c.r/255, c.g/255, c.b/255], 3*k); k++; }
+  const mat = new THREE.MeshLambertMaterial({vertexColors:true, transparent:true, side:THREE.DoubleSide});
+  const surf = new THREE.Mesh(gT, mat); K.sc.add(surf);
+  // apa din rau
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(800, 500), new THREE.MeshBasicMaterial({color:0x2f6fd0, transparent:true, opacity:0.0}));
+  water.rotation.x = -Math.PI/2; K.sc.add(water);
+  // punctele masurate + TIN
+  const N = 650, P = []; for(let i=0;i<N;i++){ const x = T.rnd()*T.W, y = T.rnd()*T.H; if(T.cls(x, y) === 6) continue; P.push([x, y, T.ground(x, y)]); }
+  [[0,0],[T.W,0],[T.W,T.H],[0,T.H]].forEach(([x,y]) => P.push([x, y, T.ground(x, y)]));
+  const toV = (x, y, z) => [x - T.W/2, (z - Z0)*EX + 0.6, -(y - T.H/2)];
+  const ptsG = new THREE.BufferGeometry(); ptsG.setAttribute('position', new THREE.BufferAttribute(new Float32Array(P.flatMap(p => toV(...p))), 3));
+  const pts = new THREE.Points(ptsG, new THREE.PointsMaterial({color:0x3fd0ff, size:5, sizeAttenuation:false})); K.sc.add(pts);
+  const del = d3.Delaunay.from(P, p => p[0], p => p[1]), tri = del.triangles, seg3 = [];
+  for(let i=0;i<tri.length;i+=3){ const a = P[tri[i]], b = P[tri[i+1]], c = P[tri[i+2]]; seg3.push(...toV(...a), ...toV(...b), ...toV(...b), ...toV(...c), ...toV(...c), ...toV(...a)); }
+  const tinG = new THREE.BufferGeometry(); tinG.setAttribute('position', new THREE.BufferAttribute(new Float32Array(seg3), 3));
+  const tin = new THREE.LineSegments(tinG, new THREE.LineBasicMaterial({color:0xffd84a, transparent:true, opacity:0.8})); K.sc.add(tin);
+  const NT = tri.length/3;
+  // particule de apa (scurgere pe panta)
+  const NPa = 700, part = [], paG = new THREE.BufferGeometry(); paG.setAttribute('position', new THREE.BufferAttribute(new Float32Array(NPa*3), 3));
+  const resetP = p => { p.x = T.rnd()*T.W; p.y = T.rnd()*T.H; p.age = 0; };
+  for(let i=0;i<NPa;i++){ const p = {}; resetP(p); p.age = Math.floor(T.rnd()*200); part.push(p); }
+  const pa = new THREE.Points(paG, new THREE.PointsMaterial({color:0x7fd0ff, size:3.5, sizeAttenuation:false, transparent:true})); K.sc.add(pa);
+
+  const LEG = [
+    `<h4>Puncte măsurate și TIN</h4><div>Punctele (topografie terestră, GNSS, UAV) se unesc în triunghiuri — <b>TIN</b> (Triangulated Irregular Network). Fiecare triunghi este un mic plan înclinat.</div>`,
+    `<h4>DEM — model digital de elevație</h4><div>Din TIN se obține o suprafață continuă: cota în orice punct. Culorile arată altitudinea (verde jos → maro sus).</div>`,
+    `<h4>DSM sau DTM?</h4><div class="r"><i style="background:#1a5c29"></i>arbori</div><div class="r"><i style="background:#b84d38"></i>clădiri</div><div><b>DSM</b> (suprafață) include vegetația și construcțiile; <b>DTM</b> (teren) este solul natural — singurul bun pentru proiectarea canalelor.</div>`,
+    `<h4>Panta terenului</h4>${[['#2f9e44','0–2 %'],['#a8d65a','2–6 %'],['#f2d24b','6–15 %'],['#f08a3c','15–35 %'],['#d6263a','> 35 %']].map(([c,t]) => `<div class="r"><i style="background:${c}"></i>${t}</div>`).join('')}<div>Particulele albastre coboară pe direcția pantei maxime: așa se vede unde se adună apa.</div>`];
+  const D = [9, 6, 9, 10], T0 = [0, 9, 15, 24];
+  const clk = AnimUI.init({duration:34, loop:true, phases:[
+    {t:0, text:'Datele de teren: puncte cu coordonate X, Y și cota Z, măsurate cu stația totală, GNSS sau din zbor UAV.'},
+    {t:4, text:'Punctele se unesc în <b>triunghiuri</b> (TIN) — cea mai simplă suprafață care trece exact prin punctele măsurate.'},
+    {t:9, text:'<b>Modelul digital al terenului</b>: cota în orice punct, colorată după altitudine — valea râului, canalul magistral cu digurile, câmpia.'},
+    {t:15, text:'Un zbor LiDAR sau fotogrametric dă întâi <b>DSM</b>: suprafața cu arbori și case.'},
+    {t:19, text:'Filtrarea vegetației și a clădirilor lasă <b>DTM</b> — terenul natural. Atenție: un DSM folosit ca DTM greșește cotele cu metri.'},
+    {t:24, text:'Din DTM: <b>harta pantelor</b> și <b>scurgerea apei</b> — unde se adună apa, unde trebuie drenaj, pe unde pot trece canalele.'}]});
+  document.querySelectorAll('.opts button').forEach(b => b.onclick = () => clk.seek(T0[+b.dataset.s] + 0.01));
+  let lastA = -1, lastMode = '';
+  const pos = gT.attributes.position, col = gT.attributes.color;
+  function setPos(f){ for(let i=0;i<pos.array.length;i++) pos.array[i] = pD[i] + (pT[i] - pD[i])*f; pos.needsUpdate = true; gT.computeVertexNormals(); }
+  function setCol(a, b, f){ for(let i=0;i<col.array.length;i++) col.array[i] = a[i] + (b[i] - a[i])*f; col.needsUpdate = true; }
+  (function frame(){
+    const t = clk.update(), a = t < T0[1] ? 0 : t < T0[2] ? 1 : t < T0[3] ? 2 : 3;
+    if(a !== lastA){ lastA = a; document.getElementById('leg').innerHTML = LEG[a]; document.querySelectorAll('.opts button').forEach(b => b.classList.toggle('on', +b.dataset.s === a)); }
+    // puncte si TIN
+    const nP = Math.floor(P.length*seg(t, 0.3, 3.5, x=>x)); ptsG.setDrawRange(0, nP); pts.visible = t < 15;
+    tinG.setDrawRange(0, Math.floor(NT*seg(t, 4, 8.5, x=>x))*6); tin.material.opacity = 0.85*(1 - seg(t, 9, 11)); tin.visible = t < 11.5;
+    mat.opacity = t < 9 ? 0.18 + 0.2*seg(t, 4, 8.5) : 0.38 + 0.62*seg(t, 9, 11);
+    // DSM -> DTM
+    const mode = t < 15 ? 'dtm' : t < 19 ? 'dsm' : t < 24 ? 'morph' : 'slope';
+    if(mode === 'dtm' && lastMode !== 'dtm'){ setPos(1); setCol(cH, cH, 0); }
+    if(mode === 'dsm'){ setPos(1 - seg(t, 15, 16.5)); setCol(cH, cS, seg(t, 15, 16.5)); }
+    if(mode === 'morph'){ const f = seg(t, 19.5, 23); setPos(f); setCol(cS, cH, f); }
+    if(mode === 'slope'){ if(lastMode !== 'slope') setPos(1); setCol(cH, cP, seg(t, 24, 25.5)); }
+    lastMode = mode;
+    // particule
+    pa.visible = t > 25; if(pa.visible){ const ap = paG.attributes.position.array;
+      part.forEach((p, i) => { const d = 1.5, gx = (T.ground(p.x+d, p.y) - T.ground(p.x-d, p.y))/(2*d), gy = (T.ground(p.x, p.y+d) - T.ground(p.x, p.y-d))/(2*d), g = Math.hypot(gx, gy) || 1e-6;
+        if(clk.playing){ p.x -= 2.2*gx/g*clk.speed; p.y -= 2.2*gy/g*clk.speed; p.age++; }
+        if(p.age > 260 || p.x < 0 || p.y < 0 || p.x > T.W || p.y > T.H) resetP(p);
+        const v = toV(p.x, p.y, T.ground(p.x, p.y)); ap[3*i] = v[0]; ap[3*i+1] = v[1] + 0.8; ap[3*i+2] = v[2]; });
+      paG.attributes.position.needsUpdate = true; pa.material.opacity = seg(t, 25, 26.5); }
+    K.render(); requestAnimationFrame(frame);
+  })();
+})();
+</script>
+</body></html>

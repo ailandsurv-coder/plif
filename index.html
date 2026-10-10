@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PLIF — curs interactiv</title>
+<meta name="description" content="Masterul PLIF, USAMV București: prezentări interactive și suportul de curs — proiecții cartografice, stații totale, GNSS, UAV, modelul digital al terenului.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='28' fill='%231F6FB2'/%3E%3Cpath d='M8 32h48M32 4c-12 14-12 42 0 56M32 4c12 14 12 42 0 56' stroke='white' stroke-width='3' fill='none'/%3E%3C/svg%3E">
+<style>
+:root{--bg:#07101f;--panel:#0f1d33;--line:#22385a;--ink:#e8eef8;--muted:#9fb0c8;--cyan:#3fd0ff;--gold:#ffc940}
+*{box-sizing:border-box} body{margin:0;background:radial-gradient(1200px 600px at 70% -10%,#16305a 0,var(--bg) 60%);background-color:var(--bg);color:var(--ink);font:16px/1.5 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
+.wrap{max-width:1100px;margin:0 auto;padding:28px 16px 48px}
+header{display:flex;gap:16px;align-items:center;flex-wrap:wrap} header img{height:64px;border-radius:6px;background:#fff;padding:3px}
+.inst{color:var(--muted);font-size:14px;line-height:1.35} .inst b{color:var(--ink)}
+h1{font-weight:600;font-size:clamp(28px,5vw,44px);margin:28px 0 6px;letter-spacing:.2px} .sub{color:var(--muted);margin:0 0 22px}
+.pdf{display:flex;gap:16px;align-items:center;flex-wrap:wrap;background:linear-gradient(90deg,#1b3a5c,#12284a);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin:8px 0 26px}
+.pdf .t{flex:1;min-width:220px} .pdf b{font-size:18px}
+.btn{display:inline-block;background:var(--cyan);color:#04111f;text-decoration:none;font-weight:700;padding:10px 16px;border-radius:10px} .btn:hover{filter:brightness(1.1)}
+.btn.g{background:var(--gold)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px}
+.card h2{margin:4px 0 6px;font-size:21px;font-weight:600} .card p{color:var(--muted);margin:0 0 14px;font-size:15px}
+.nr{color:var(--cyan);font-weight:700;font-size:13px;letter-spacing:1px;text-transform:uppercase} .nr span{color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0}
+details{margin-top:14px} summary{cursor:pointer;color:var(--ink);font-weight:600} ol{margin:8px 0 0;padding-left:22px} li{margin:3px 0}
+li a{color:#bfe9ff;text-decoration:none} li a:hover{text-decoration:underline}
+.note{color:var(--muted);font-size:14px;margin-top:26px;border-top:1px solid var(--line);padding-top:14px} .note b{color:var(--ink)}
+</style></head><body><div class="wrap">
+<header><img src="img/sigla_1.png" alt="Sigla USAMV București"><img src="img/sigla_2.jpg" alt="Sigla Facultății de Îmbunătățiri Funciare și Ingineria Mediului">
+  <div class="inst"><b>Universitatea de Științe Agronomice și Medicină Veterinară din București</b><br>Facultatea de Îmbunătățiri Funciare și Ingineria Mediului<br>Master · Proiectarea Lucrărilor de Îmbunătățiri Funciare</div></header>
+<h1>Măsurători topografice și modelarea terenului</h1>
+<p class="sub">Prezentări interactive cu animații și suportul de curs · anul universitar 2026–2027</p>
+<div class="pdf"><div class="t"><b>Suportul de curs (PDF)</b><br><span class="inst">85 de pagini: text, figuri, exemple rezolvate, întrebări de autoevaluare cu răspunsuri, formular, glosar. Legăturile „▶ Animație interactivă” din PDF deschid animațiile de pe acest site.</span></div>
+  <a class="btn g" href="Suport_de_curs_Master_PLIF.pdf">Deschide PDF-ul</a></div>
+<div class="grid">
+    <section class="card">
+      <div class="nr">Cursul 1 <span>· în suport: Capitolul 1</span></div>
+      <h2>Proiecții cartografice și sisteme de referință</h2>
+      <p>Suprafețele de referință, tipurile de proiecții, Stereo 70, sistemul X–Y, Marea Neagră 1975, transformarea cu RomGEO.</p>
+      <a class="btn" href="CURS_1_PROIECTII_CARTOGRAFICE/index.html">▶ Prezentarea completă</a>
+      <details><summary>Animațiile, una câte una (16)</summary><ol><li><a href="CURS_1_PROIECTII_CARTOGRAFICE/anim/02_suprafete.html">Suprafețe de referință ale Pământului</a></li><li><a href="CURS_1_PROIECTII_CARTOGRAFICE/anim/03_intro.html">De la glob la hartă</a></li><li><a href="CURS_1_PROIECTII_CARTOGRAFICE/anim/04a_conforma.html">Proiecție conformă</a></li><li><a href="CURS_1_PROIECTII_CARTOGRAFICE/anim/04b_echivalenta.html">Proiecție echivalentă</a></li><li><a href="CURS_1_PROIECTII_CARTOGRAFICE/anim/04c_echidistanta.html">Proiecție echidistantă</a></li><li><a href="CURS_1_PROIECTII_CARTOGRAFICE/anim/05_deformatii.html">Deformațiile Stereo 70 pe teritoriul României</a></li><li><a href="CURS_1_PROIECTII_CARTOGRAFICE/anim/06_stereo70.html">Cum se realizează proiecția Stereo 70</a></li><li><a href="CURS_1_PROIECTII_CARTOGRAFICE/anim/07_romgeo.html">RomGEO — transformarea coordonatelor</a></li><li><a href="CURS_1_PROIECTII_CARTOGRAFICE/anim/08_axe.html">Sistemul ortogonal de coordonate X–Y</a></li><li><a href="CURS_1_PROIECTII_CARTOGRAFICE/anim/09_origine.html">Originea sistemului Stereo 70</a></li><li><a href="CURS_1_PROIECTII_CARTOGRAFICE/anim/10_mn75.html">Sistemul altimetric Marea Neagră 1975</a></li><li><a href="CURS_1_PROIECTII_CARTOGRAFICE/anim/11_azimutala.html">Proiecția azimutală (plană)</a></li><li><a href="CURS_1_PROIECTII_CARTOGRAFICE/anim/12_cilindrica_conica.html">Proiecția cilindrică și conică</a></li><li><a href="CURS_1_PROIECTII_CARTOGRAFICE/anim/13_fuse.html">Secționarea globului în fuse</a></li><li><a href="CURS_1_PROIECTII_CARTOGRAFICE/anim/14_goode.html">Proiecția întreruptă Goode</a></li><li><a href="CURS_1_PROIECTII_CARTOGRAFICE/anim/15_galerie.html">Alte tipuri de proiecții cartografice</a></li></ol></details>
+    </section>
+    <section class="card">
+      <div class="nr">Cursul 2 <span>· în suport: Capitolele 2 și 3</span></div>
+      <h2>Stații totale și sisteme GNSS</h2>
+      <p>Evoluția stației totale, echipamentul de teren, constelațiile GNSS în 2026, poziționarea RTK prin ROMPOS, aplicații.</p>
+      <a class="btn" href="CURS_2_STATII_TOTALE_GNSS/index.html">▶ Prezentarea completă</a>
+      <details><summary>Animațiile, una câte una (8)</summary><ol><li><a href="CURS_2_STATII_TOTALE_GNSS/anim/02_evolutie.html">Evoluția stației totale</a></li><li><a href="CURS_2_STATII_TOTALE_GNSS/anim/03_echipamente.html">Stații totale, trepiede și accesorii</a></li><li><a href="CURS_2_STATII_TOTALE_GNSS/anim/05_avantaje.html">Avantajele stațiilor totale</a></li><li><a href="CURS_2_STATII_TOTALE_GNSS/anim/06_dtm_canal.html">De la măsurători la proiectul canalului</a></li><li><a href="CURS_2_STATII_TOTALE_GNSS/anim/07_constelatii.html">Constelațiile GNSS</a></li><li><a href="CURS_2_STATII_TOTALE_GNSS/anim/08_sisteme.html">Sistemele GNSS — date comparative</a></li><li><a href="CURS_2_STATII_TOTALE_GNSS/anim/09_rtk.html">Poziționarea GNSS cu corecții</a></li><li><a href="CURS_2_STATII_TOTALE_GNSS/anim/10_aplicatii.html">Aplicații GNSS în îmbunătățiri funciare</a></li></ol></details>
+    </section>
+    <section class="card">
+      <div class="nr">Cursul 3 <span>· în suport: Capitolul 5</span></div>
+      <h2>Modelul digital al terenului și CAD</h2>
+      <p>DEM / DSM / DTM, norul de puncte, curbe de nivel, profile, volume, fluxul de lucru CAD, monitorizarea canalelor.</p>
+      <a class="btn" href="CURS_3_MODELE_DIGITALE_CAD/index.html">▶ Prezentarea completă</a>
+      <details><summary>Animațiile, una câte una (7)</summary><ol><li><a href="CURS_3_MODELE_DIGITALE_CAD/anim/02_dem.html">Modelul digital al terenului</a></li><li><a href="CURS_3_MODELE_DIGITALE_CAD/anim/03_nor_puncte.html">Norul de puncte</a></li><li><a href="CURS_3_MODELE_DIGITALE_CAD/anim/07_curbe.html">Generarea curbelor de nivel</a></li><li><a href="CURS_3_MODELE_DIGITALE_CAD/anim/13_profile.html">Profile longitudinale și transversale</a></li><li><a href="CURS_3_MODELE_DIGITALE_CAD/anim/15_profil_cad.html">Planșa de profil: cum se citește</a></li><li><a href="CURS_3_MODELE_DIGITALE_CAD/anim/21_cad_flux.html">Fluxul de lucru în CAD</a></li><li><a href="CURS_3_MODELE_DIGITALE_CAD/anim/23_monitorizare.html">Monitorizarea canalului cu modele digitale</a></li></ol></details>
+    </section>
+    <section class="card">
+      <div class="nr">Cursul 4 <span>· în suport: Capitolul 4</span></div>
+      <h2>UAV: fotogrametrie și scanare 3D</h2>
+      <p>Tipuri de drone și cadrul legal, principiul fotogrametriei, fluxul în 8 pași de la zbor la ortofotoplan, LiDAR.</p>
+      <a class="btn" href="CURS_4_UAV_SCANARE_3D/index.html">▶ Prezentarea completă</a>
+      <details><summary>Animațiile, una câte una (12)</summary><ol><li><a href="CURS_4_UAV_SCANARE_3D/anim/02_tipuri_uav.html">Tipuri de UAV</a></li><li><a href="CURS_4_UAV_SCANARE_3D/anim/07_principiu.html">Principiul fotogrametriei</a></li><li><a href="CURS_4_UAV_SCANARE_3D/anim/09a_legatura.html">Puncte de legătură</a></li><li><a href="CURS_4_UAV_SCANARE_3D/anim/09b_aliniere.html">Alinierea imaginilor și georeferențierea</a></li><li><a href="CURS_4_UAV_SCANARE_3D/anim/09c_nor_dens.html">Norul dens și modelul 3D</a></li><li><a href="CURS_4_UAV_SCANARE_3D/anim/10a_dsm_dtm.html">De la DSM la DTM</a></li><li><a href="CURS_4_UAV_SCANARE_3D/anim/10b_ortofoto.html">Ortofotoplanul</a></li><li><a href="CURS_4_UAV_SCANARE_3D/anim/11a_pregatire.html">Pregătirea zborului fotogrametric</a></li><li><a href="CURS_4_UAV_SCANARE_3D/anim/11b_zbor.html">Zborul fotogrametric</a></li><li><a href="CURS_4_UAV_SCANARE_3D/anim/11c_produse.html">Produse și controlul calității</a></li><li><a href="CURS_4_UAV_SCANARE_3D/anim/14_lidar.html">Scanarea LiDAR din UAV</a></li><li><a href="CURS_4_UAV_SCANARE_3D/anim/18_comparator.html">Comparator metode de ridicare</a></li></ol></details>
+    </section>
+</div>
+<p class="note"><b>Cum se folosesc:</b> prezentarea completă se parcurge cu săgețile ← → sau cu butoanele de pe ecran, iar pe telefon prin glisare; <b>Spațiu</b> = pauză, <b>F</b> = ecran complet, <b>N</b> = notele de curs. Fiecare animație are bara ei: pauză, derulare, viteză; scenele 3D se rotesc cu mouse-ul sau cu degetul. Merge în Chrome, Edge, Firefox și Safari; pe telefon e mai comod în poziție orizontală.</p>
+</div></body></html>

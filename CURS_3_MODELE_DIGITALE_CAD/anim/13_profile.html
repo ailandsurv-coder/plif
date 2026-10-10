@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Profile longitudinale și transversale</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/three.min.js"></script><script src="../lib/OrbitControls.js"></script>
+<script src="../lib/anim-ui.js"></script><script src="../lib/teren.js"></script>
+<style>#pf{position:absolute;left:24px;right:24px;bottom:150px;height:42vh;background:rgba(8,14,28,.97);border:1px solid var(--line);border-radius:12px;opacity:0;transition:opacity .4s;pointer-events:none}#pf svg{width:100%;height:100%}</style>
+</head><body><div id="stage"></div>
+<div class="a-title">Profile longitudinale și transversale<small>Secțiuni verticale prin modelul terenului de-a lungul axei unui canal de desecare · exagerare verticală</small></div>
+<div class="opts"><button data-s="0" class="on">1 · Axa și cortina</button><button data-s="1">2 · Desfășurarea</button><button data-s="2">3 · Linia proiectată</button><button data-s="3">4 · Greșeala: punct jos</button><button data-s="4">5 · Profile transversale</button></div>
+<div id="pf"><svg id="psv" viewBox="0 0 1400 380"></svg></div>
+<script>
+(function(){
+  const {seg, lerp, ease} = AnimUI, T = window.TEREN, EX = 3, Z0 = 60, ZB = 50;
+  const K = T.scene(document.getElementById('stage'), {camPos:[-60, 420, 640]});
+  const terr = new THREE.Mesh(T.mesh(T.ground, {nx:200, ny:125, ex:EX, z0:Z0}), new THREE.MeshLambertMaterial({vertexColors:true, transparent:true, side:THREE.DoubleSide})); K.sc.add(terr);
+  // axa canalului de desecare: din câmpia de sud spre râu
+  const AX = [[90, 20], [210, 95], [330, 150], [430, 200]];
+  const S = []; let L = 0;
+  for(let i=1;i<AX.length;i++){ const [x0,y0] = AX[i-1], [x1,y1] = AX[i], d = Math.hypot(x1-x0, y1-y0), n = Math.ceil(d/2);
+    for(let k=(i === 1 ? 0 : 1);k<=n;k++){ const f = k/n, x = x0 + (x1-x0)*f, y = y0 + (y1-y0)*f; S.push({s:L + d*f, x, y, z:T.ground(x, y), dx:(x1-x0)/d, dy:(y1-y0)/d}); } L += d; }
+  const v3 = (x, y, z, ex) => new THREE.Vector3(x - T.W/2, (z - Z0)*(ex||EX), -(y - T.H/2));
+  // linia axei pe teren
+  const axG = new THREE.BufferGeometry().setFromPoints(S.map(p => v3(p.x, p.y, p.z + 0.3)));
+  const axL = new THREE.Line(axG, new THREE.LineBasicMaterial({color:0x3fd0ff})); K.sc.add(axL);
+  // cortina: pentru fiecare punct al axei, sus (teren) si jos (ZB); tinta desfasurata: un plan drept in fata terenului
+  const n = S.length, cg = new THREE.BufferGeometry(), cpos = new Float32Array(n*2*3), idx = [];
+  for(let i=0;i<n-1;i++){ const a = 2*i, b = a+1, c = a+2, d = a+3; idx.push(a,b,c, b,d,c); }
+  cg.setAttribute('position', new THREE.BufferAttribute(cpos, 3)); cg.setIndex(idx);
+  const curtain = new THREE.Mesh(cg, new THREE.MeshBasicMaterial({color:0xc9a46a, transparent:true, opacity:0.75, side:THREE.DoubleSide})); K.sc.add(curtain);
+  const tg = new THREE.BufferGeometry(), tpos = new Float32Array(n*3); tg.setAttribute('position', new THREE.BufferAttribute(tpos, 3));
+  const tline = new THREE.Line(tg, new THREE.LineBasicMaterial({color:0xffffff})); K.sc.add(tline);
+  const FX = 1.55, FZ = T.H/2 + 70, FEX = 11;                       // tinta: scara orizontala, pozitia planului, exagerarea in profil
+  function setCurtain(h, u){ // h: cat din inaltime, u: desfasurare 0..1
+    const e = ease(u);
+    S.forEach((p, i) => { const a = v3(p.x, p.y, p.z), b = v3(p.x, p.y, ZB);
+      const fa = new THREE.Vector3(p.s*FX - L*FX/2, (p.z - 56)*FEX + 40, FZ), fb = new THREE.Vector3(p.s*FX - L*FX/2, 40 - 6*FEX*0 - 20, FZ);
+      const top = a.clone().lerp(fa, e), bot0 = a.clone().lerp(b, h), bot = bot0.lerp(fb, e);
+      cpos.set([top.x, top.y, top.z], 6*i); cpos.set([bot.x, bot.y, bot.z], 6*i + 3); tpos.set([top.x, top.y + 0.4, top.z], 3*i); });
+    cg.attributes.position.needsUpdate = true; tg.attributes.position.needsUpdate = true;
+  }
+  // linii transversale in 3D (la 50 m)
+  const XS = []; for(let s=0; s<=L; s+=50) XS.push(s);
+  const xg = new THREE.Group(); K.sc.add(xg);
+  const csec = XS.map(s => { const p = S.reduce((a, b) => Math.abs(b.s - s) < Math.abs(a.s - s) ? b : a), nx = -p.dy, ny = p.dx, pts = [];
+    for(let d=-7; d<=7; d+=0.25) pts.push({d, x:p.x + nx*d, y:p.y + ny*d, z:T.ground(p.x + nx*d, p.y + ny*d)});
+    const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts.map(q => v3(q.x, q.y, q.z + 0.4))), new THREE.LineBasicMaterial({color:0xffd84a})); xg.add(l);
+    return {s, p, pts}; });
+  // linia proiectata (corecta) si varianta gresita
+  // fundul proiectat: ~1,2 m sub teren, mereu descendent spre debușeu (pantă minimă 1 ‰)
+  const ZD = []; S.forEach((p, i) => { const want = p.z - 1.2; ZD.push(i === 0 ? want : Math.min(ZD[i-1] - 0.001*(p.s - S[i-1].s), want)); });
+  const zOut = ZD[n-1], iD = (ZD[0] - ZD[n-1])/L;
+  const zd = s => { const i = Math.max(0, Math.min(n - 2, Math.floor(s/L*(n - 1)))); const f = (s - S[i].s)/((S[i+1].s - S[i].s) || 1); return ZD[i] + (ZD[i+1] - ZD[i])*Math.max(0, Math.min(1, f)); };
+  const zBad = s => zd(s) - 0.55*Math.exp(-Math.pow((s - L*0.45)/32, 2)) + 0.35*Math.exp(-Math.pow((s - L*0.7)/30, 2));
+  const psv = document.getElementById('psv'), pf = document.getElementById('pf');
+  function profileSVG(mode, k, tt){
+    const zs = S.map(p => p.z), zlo = Math.floor(Math.min(...zs, zOut) - 1.5), zhi = Math.ceil(Math.max(...zs) + 0.8);
+    const X = s => 90 + s/L*1270, Y = z => 330 - (z - zlo)/(zhi - zlo)*290;
+    let h = '';
+    for(let z=zlo; z<=zhi; z++) h += `<line x1="90" y1="${Y(z)}" x2="1360" y2="${Y(z)}" stroke="#22355a"/><text x="82" y="${Y(z)+5}" fill="#8a98b4" font-size="14" text-anchor="end">${z}</text>`;
+    for(let s=0; s<=L; s+=50) h += `<line x1="${X(s)}" y1="40" x2="${X(s)}" y2="330" stroke="#22355a"/><text x="${X(s)}" y="352" fill="#8a98b4" font-size="14" text-anchor="middle">${(s/1000).toFixed(3).replace('.','+')}</text>`;
+    const tl = S.map((p,i) => (i?'L':'M') + X(p.s).toFixed(1) + ' ' + Y(p.z).toFixed(1)).join(' ');
+    h += `<path d="${tl}" fill="none" stroke="#c9a46a" stroke-width="3"/><text x="96" y="${Y(S[0].z) - 10}" fill="#c9a46a" font-size="15">teren natural</text>`;
+    if(mode >= 1){ const f = mode === 1 ? zd : zBad, kk = Math.min(1, k*1.4), m = Math.floor(n*kk);
+      const dl = S.slice(0, Math.max(2, m)).map((p,i) => (i?'L':'M') + X(p.s).toFixed(1) + ' ' + Y(f(p.s)).toFixed(1)).join(' ');
+      h += `<path d="${dl}" fill="none" stroke="${mode === 1 ? '#3fd0ff' : '#ff6262'}" stroke-width="3"/>`;
+      h += `<text x="${X(L*0.15)}" y="${Y(f(L*0.15)) + 24}" fill="${mode === 1 ? '#3fd0ff' : '#ff8080'}" font-size="15">${mode === 1 ? 'fundul canalului proiectat — la ~1,2 m sub teren, mereu în pantă spre râu (min. 1 ‰)' : 'proiect greșit — contrapante și un punct jos'}</text>`;
+      // apa
+      if(k > 0.6){ const q = (tt*0.25) % 1; for(let j=0;j<14;j++){ let s = ((q + j/14) % 1)*L; if(mode === 2){ const lp = L*0.45; if(s > lp - 20 && s < lp + 60) s = lp + Math.sin(j)*6; }
+          h += `<circle cx="${X(s)}" cy="${Y(f(s)) - 4}" r="5" fill="#7fd0ff"/>`; }
+        if(mode === 2){ h += `<ellipse cx="${X(L*0.45)}" cy="${Y(zBad(L*0.45)) - 6}" rx="34" ry="8" fill="rgba(80,160,255,.55)"/><text x="${X(L*0.45)}" y="${Y(zBad(L*0.45)) + 34}" fill="#ff8080" font-size="16" text-anchor="middle" font-weight="700">apa stagnează: colmatare, mlăștinire</text>`; }
+        else h += `<text x="${X(L) - 6}" y="${Y(zOut) - 14}" fill="#7fd0ff" font-size="15" text-anchor="end" font-weight="700">debușeu în râu →</text>`; }
+    }
+    return h;
+  }
+  function sectionsSVG(k){
+    const m = Math.min(csec.length, 1 + Math.floor(k*csec.length)), w = 1380/csec.length;
+    let h = `<text x="12" y="24" fill="#ffd84a" font-size="16" font-weight="700">Profile transversale la fiecare 50 m (±7 m față de axă, exagerare verticală ×2,5) — terenul (maro) și secțiunea canalului (albastru): b = 1,0 m, taluz 1:1,5</text>`;
+    csec.slice(0, m).forEach((c, i) => { const ox = 10 + i*w, zs = c.pts.map(q => q.z), zc = zd(c.s), ppm = (w - 30)/14, VE = 2.5, zmid = (zc + Math.max(...zs))/2;
+      const X = d => ox + 8 + (d + 7)*ppm, Y = z => 215 - (z - zmid)*ppm*VE;
+      h += `<rect x="${ox}" y="60" width="${w - 14}" height="300" rx="8" fill="rgba(0,0,0,.25)"/>`;
+      h += `<path d="${c.pts.map((q,j) => (j?'L':'M') + X(q.d).toFixed(1) + ' ' + Y(q.z).toFixed(1)).join(' ')}" fill="none" stroke="#c9a46a" stroke-width="2.5"/>`;
+      const zt = T.ground(c.p.x, c.p.y), hh = zt - zc, b = 0.5, mm = 1.5;
+      h += `<polygon points="${X(-b - mm*hh)},${Y(zt)} ${X(-b)},${Y(zc)} ${X(b)},${Y(zc)} ${X(b + mm*hh)},${Y(zt)}" fill="rgba(255,98,98,.35)" stroke="#3fd0ff" stroke-width="2"/>`;
+      h += `<text x="${ox + (w-14)/2}" y="84" fill="#fff" font-size="15" text-anchor="middle">km ${(c.s/1000).toFixed(3).replace('.','+')}</text>
+        <text x="${ox + (w-14)/2}" y="352" fill="#ff9d9d" font-size="13" text-anchor="middle">săpătură ${(hh*(2*b + mm*hh)).toFixed(1).replace('.',',')} m²</text>`; });
+    return h;
+  }
+  const T0 = [0, 7, 14, 22, 30], DUR = 40;
+  const clk = AnimUI.init({duration:DUR, loop:true, phases:[
+    {t:0, text:'Pe modelul terenului se trasează <b>axa canalului</b> (aici un canal de desecare, spre râu).'},
+    {t:3, text:'Imaginați-vă o <b>cortină verticală</b> coborâtă de-a lungul axei: marginea ei de sus urmărește terenul.'},
+    {t:7, text:'Cortina se <b>desfășoară în plan</b> — rezultatul este <b>profilul longitudinal</b> al terenului.'},
+    {t:14, text:'Pe profil se proiectează <b>fundul canalului</b>: o pantă continuă spre debușeu — apa curge fără să stagneze.'},
+    {t:22, text:'Greșeală tipică: o <b>contrapantă</b> — punctul jos adună apa și sedimentele; canalul se colmatează și terenul se înmlăștinește.'},
+    {t:30, text:'<b>Profilele transversale</b>, perpendiculare pe axă, la 50 m: terenul și secțiunea proiectată → ariile de săpătură.'}]});
+  document.querySelectorAll('.opts button').forEach(b => b.onclick = () => clk.seek(T0[+b.dataset.s] + 0.01));
+  let manual = false; K.ren.domElement.addEventListener('pointerdown', () => manual = true);
+  const camA = new THREE.Vector3(-60, 420, 640), camB = new THREE.Vector3(0, 300, 900);
+  (function frame(){
+    const t = clk.update(), a = T0.reduce((acc, v, i) => t >= v ? i : acc, 0);
+    document.querySelectorAll('.opts button').forEach(b => b.classList.toggle('on', +b.dataset.s === a));
+    axG.setDrawRange(0, Math.floor(n*seg(t, 0.3, 3, x=>x)));
+    const hC = seg(t, 3, 6.5), u = seg(t, 7.5, 13);
+    curtain.visible = t >= 3 && a < 4; tline.visible = curtain.visible; setCurtain(hC, u);
+    terr.material.opacity = a === 4 ? 1 : 1 - 0.5*seg(t, 3, 4) - 0.2*u; terr.material.depthWrite = terr.material.opacity > 0.99;
+    xg.visible = a === 4; xg.children.forEach((l, i) => l.visible = i <= Math.floor(seg(t, 30, 36, x=>x)*csec.length));
+    // panoul 2D
+    const show2D = t >= 13.5; pf.style.opacity = show2D ? 1 : 0;
+    if(show2D) psv.innerHTML = a === 4 ? sectionsSVG(seg(t, 30.5, 36, x=>x)) : profileSVG(a === 2 ? 1 : a === 3 ? 2 : 0, a === 2 ? seg(t, 14, 19, x=>x) : seg(t, 22, 26, x=>x), t);
+    const uc = ease(u)*(1 - seg(t, 29.5, 31.5)); if(!manual){ K.cam.position.copy(camA.clone().lerp(camB, uc)); K.cam.lookAt(0, lerp(-60, 60, uc), lerp(120, 150, uc)); K.ctr.target.set(0, lerp(-60, 60, uc), lerp(120, 150, uc)); }
+    K.ren.render(K.sc, K.cam); if(manual) K.ctr.update();
+    requestAnimationFrame(frame);
+  })();
+})();
+</script>
+</body></html>

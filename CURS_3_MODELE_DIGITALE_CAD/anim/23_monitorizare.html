@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Monitorizarea canalului cu modele digitale</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/three.min.js"></script><script src="../lib/OrbitControls.js"></script><script src="../lib/d3.min.js"></script><script src="../lib/anim-ui.js"></script>
+<style>
+  #leg{left:24px;top:120px;width:300px;font-size:clamp(12px,.95vw,16px)}
+  #sec{position:absolute;right:24px;bottom:160px;width:min(640px,44vw);height:250px;background:rgba(8,14,28,.95);border:1px solid var(--line);border-radius:12px;display:none}
+  #sec svg{width:100%;height:100%}
+</style>
+</head><body><div id="stage"></div>
+<div class="a-title">Monitorizarea canalului cu modele digitale ale terenului<small>Două ridicări ale aceluiași tronson: diferența modelelor (DoD) arată colmatarea, eroziunea și tasările — și volumul de decolmatat</small></div>
+<div class="opts"><button data-s="0" class="on">1 · 2023: după execuție</button><button data-s="1">2 · 2026: ridicarea nouă</button><button data-s="2">3 · Diferența modelelor</button><button data-s="3">4 · Secțiune și volume</button></div>
+<div class="a-panel" id="leg"></div>
+<div id="sec"><svg id="ssv" viewBox="0 0 640 250"></svg></div>
+<script>
+(function(){
+  const {seg, lerp, ease} = AnimUI;
+  // tronson de canal: u de-a lungul axei (0..240 m), v transversal (-40..40 m)
+  const UL = 240, VW = 40, b = 3, h = 3, m = 2, dig = 2.2, cor = 5, EX = 3;
+  const z1 = (u, v) => { const d = Math.abs(v), zb = 0, zc = h + dig, t0 = b + m*zc;
+    if(d <= b) return zb; if(d <= t0) return (d - b)/m; if(d <= t0 + cor) return zc; if(d <= t0 + cor + 2*dig) return zc - (d - t0 - cor)/2; return h + 0.05*Math.sin(u/23 + v/11); };
+  const silt = (u, v) => { const d = Math.abs(v); return d <= b + 1.5 ? (0.32 + 0.18*Math.sin(u/31) + 0.12*Math.sin(u/9))*Math.max(0, 1 - Math.max(0, d - b)/1.5) : 0; };
+  const eros = (u, v) => (v > b && v < b + m*(h + dig)) ? -0.55*Math.exp(-Math.pow((u - 110)/22, 2))*Math.exp(-Math.pow((v - 7.5)/3, 2)) : 0;
+  const settle = (u, v) => (v < -(b + m*(h + dig)) && v > -(b + m*(h + dig) + cor)) ? -0.14*Math.exp(-Math.pow((u - 175)/30, 2)) : 0;
+  const z2 = (u, v) => z1(u, v) + silt(u, v) + eros(u, v) + settle(u, v);
+  const NU = 240, NV = 160, n = (NU+1)*(NV+1), p1 = new Float32Array(n*3), p2 = new Float32Array(n*3), c1 = new Float32Array(n*3), cD = new Float32Array(n*3), idx = [];
+  const hy = d3.scaleLinear().domain([0, 1.5, 3, 5.2]).range(['#5a7f99', '#9aa7a8', '#b7b08a', '#7fa35a']);
+  const dcol = d3.scaleLinear().domain([-0.5, -0.05, 0.05, 0.5]).range(['#d6263a', '#c9c4b8', '#c9c4b8', '#2f6fd8']).clamp(true);
+  let dep = 0, ero = 0; const cell = (UL/NU)*(2*VW/NV);
+  let k = 0;
+  for(let j=0;j<=NV;j++) for(let i=0;i<=NU;i++){ const u = UL*i/NU, v = -VW + 2*VW*j/NV, a = z1(u, v), c = z2(u, v), dz = c - a;
+    p1.set([u - UL/2, a*EX, v], 3*k); p2.set([u - UL/2, c*EX, v], 3*k);
+    const q = d3.rgb(hy(a)); c1.set([q.r/255, q.g/255, q.b/255], 3*k);
+    const r = d3.rgb(Math.abs(dz) < 0.05 ? '#c9c4b8' : dcol(dz)); cD.set([r.r/255, r.g/255, r.b/255], 3*k);
+    if(i < NU && j < NV){ if(dz > 0.05) dep += dz*cell; if(dz < -0.05) ero += dz*cell; }
+    k++; }
+  for(let j=0;j<NV;j++) for(let i=0;i<NU;i++){ const a = j*(NU+1)+i, bb = a+1, c = a+NU+1, d = c+1; idx.push(a,c,bb, bb,c,d); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(p1.slice(), 3)); g.setAttribute('color', new THREE.BufferAttribute(c1.slice(), 3)); g.setIndex(idx); g.computeVertexNormals();
+  const ren = new THREE.WebGLRenderer({antialias:true, alpha:true, preserveDrawingBuffer:true}); ren.setPixelRatio(Math.min(2, devicePixelRatio||1)); document.getElementById('stage').appendChild(ren.domElement);
+  const sc = new THREE.Scene(), cam = new THREE.PerspectiveCamera(38, 1, 1, 3000); cam.position.set(-120, 255, 150); cam.lookAt(10, 0, 0);
+  sc.add(new THREE.AmbientLight(0xffffff, 0.6)); const dl = new THREE.DirectionalLight(0xffffff, 0.7); dl.position.set(-200, 300, 150); sc.add(dl);
+  const mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({vertexColors:true, side:THREE.DoubleSide})); sc.add(mesh);
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(UL, 2*(b + m*1.8)), new THREE.MeshBasicMaterial({color:0x3a7fd0, transparent:true, opacity:0.45}));
+  water.rotation.x = -Math.PI/2; water.position.y = 1.8*EX; sc.add(water);
+  const ctr = new THREE.OrbitControls(cam, ren.domElement); ctr.target.set(10, 0, 0);
+  function rs(){ const w = innerWidth, hh = innerHeight; ren.setSize(w, hh); cam.aspect = w/hh; cam.updateProjectionMatrix(); } addEventListener('resize', rs); rs();
+  // linia sectiunii (u = 110)
+  const US = 110, secLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(d3.range(-VW, VW + 0.1, 0.5).map(v => new THREE.Vector3(US - UL/2, z2(US, v)*EX + 0.3, v))), new THREE.LineBasicMaterial({color:0xffd84a})); sc.add(secLine);
+  const LEG = [
+    '<h4>2023 — ridicarea după execuție</h4><div>Modelul digital al tronsonului de canal, din nor de puncte (UAV LiDAR) plus măsurători pe fundul canalului (GNSS, ecosondă). Este starea de referință.</div>',
+    '<h4>2026 — ridicarea nouă</h4><div>Același tronson, măsurat cu aceeași metodă și în același sistem de coordonate (Stereo 70, MN75) — condiție obligatorie pentru comparație.</div>',
+    `<h4>Diferența modelelor (DoD)</h4><div style="display:flex;gap:6px;align-items:center;margin:4px 0"><i style="width:22px;height:12px;background:#2f6fd8;display:inline-block;border-radius:3px"></i>depunere (colmatare)</div>
+     <div style="display:flex;gap:6px;align-items:center;margin:4px 0"><i style="width:22px;height:12px;background:#d6263a;display:inline-block;border-radius:3px"></i>eroziune / tasare</div><div>Z<sub>2026</sub> − Z<sub>2023</sub>, în fiecare celulă. Diferențele sub ±5 cm (pragul de detecție) se ignoră.</div>`,
+    ''];
+  const D = [7, 6, 9, 12], T0 = [0, 7, 13, 22];
+  const clk = AnimUI.init({duration:34, loop:true, phases:[
+    {t:0, text:'2023: tronsonul de canal imediat după execuție — fundul și taluzurile conform proiectului.'},
+    {t:7, text:'2026: aceeași zonă, ridicată din nou. Diferențele, de câțiva decimetri, nu se văd cu ochiul liber.'},
+    {t:13, text:'<b>Diferența dintre modele</b>: albastru = depuneri pe fundul canalului (colmatare), roșu = eroziunea taluzului și tasarea digului.'},
+    {t:22, text:'Secțiunea comparativă și volumele: <b>volumul de decolmatat</b> și zonele de taluz care trebuie refăcute.'}]});
+  document.querySelectorAll('.opts button').forEach(bt => bt.onclick = () => clk.seek(T0[+bt.dataset.s] + 0.01));
+  const pos = g.attributes.position, col = g.attributes.color, leg = document.getElementById('leg'), secEl = document.getElementById('sec'), ssv = document.getElementById('ssv');
+  let lastA = -1;
+  function section(kk){
+    const X = v => 20 + (v + 22)/44*600, Y = z => 196 - z*28, vs = d3.range(-22, 22.01, 0.25);
+    let s = `<text x="16" y="24" fill="#ffd84a" font-size="16" font-weight="700">Secțiunea la km 0+110 — 2023 (gri) față de 2026 (alb)</text>`;
+    const l1 = vs.map((v,i) => (i?'L':'M') + X(v) + ' ' + Y(z1(US, v))).join(' '), l2 = vs.map((v,i) => (i?'L':'M') + X(v) + ' ' + Y(z2(US, v))).join(' ');
+    s += `<path d="${l1}" fill="none" stroke="#8a98b4" stroke-width="3" stroke-dasharray="7 5"/><path d="${l2}" fill="none" stroke="#fff" stroke-width="2.5" opacity="${kk}"/>`;
+    s += `<text x="${X(0)}" y="${Y(0) + 26}" fill="#7fb0ff" font-size="14" text-anchor="middle">depunere ≈ ${(silt(US, 0)*100).toFixed(0)} cm</text><text x="${X(7.5) + 6}" y="${Y(z1(US, 7.5)) - 10}" fill="#ff8080" font-size="14">eroziune taluz</text>`;
+    s += `<text x="16" y="238" fill="#cfd6e2" font-size="15">Depuneri: <tspan fill="#7fb0ff" font-weight="700">+${Math.round(dep).toLocaleString('ro-RO')} m³</tspan> (de decolmatat) · eroziuni: <tspan fill="#ff8080" font-weight="700">${Math.round(ero).toLocaleString('ro-RO')} m³</tspan> pe ${UL} m de canal</text>`;
+    ssv.innerHTML = s;
+  }
+  (function frame(){
+    const t = clk.update(), a = T0.reduce((acc, v, i) => t >= v ? i : acc, 0);
+    if(a !== lastA){ lastA = a; leg.innerHTML = LEG[a] || `<h4>Rezultatele comparației</h4><div><b>+${Math.round(dep).toLocaleString('ro-RO')} m³</b> depuneri pe fundul canalului — volumul lucrării de decolmatare.</div><div style="margin-top:6px"><b>${Math.round(ero).toLocaleString('ro-RO')} m³</b> eroziune pe taluzul drept și o tasare de ~14 cm a digului stâng — de urmărit.</div>`;
+      document.querySelectorAll('.opts button').forEach(bt => bt.classList.toggle('on', +bt.dataset.s === a)); }
+    const f = seg(t, 7.5, 11);
+    for(let i=0;i<pos.array.length;i++) pos.array[i] = p1[i] + (p2[i] - p1[i])*f; pos.needsUpdate = true;
+    const fc = seg(t, 13, 15); for(let i=0;i<col.array.length;i++) col.array[i] = c1[i] + (cD[i] - c1[i])*fc; col.needsUpdate = true;
+    if(t < 0.1 || (t > 7.4 && t < 11.2)) g.computeVertexNormals();
+    water.visible = t < 13; secLine.visible = a === 3; secEl.style.display = a === 3 ? 'block' : 'none'; if(a === 3) section(seg(t, 22.5, 25));
+    ctr.update(); ren.render(sc, cam); requestAnimationFrame(frame);
+  })();
+})();
+</script>
+</body></html>

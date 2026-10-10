@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Avantajele stațiilor totale</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/anim-ui.js"></script>
+<style>
+  #sv{position:absolute;left:0;top:92px;width:64%;height:calc(100vh - 250px)}
+  #pn{right:20px;top:175px;width:calc(36% - 30px);bottom:160px;overflow:hidden;font-size:clamp(14px,1.25vw,22px)}
+  #pn .tt{font-size:1.45em;font-weight:700;margin:4px 0 8px}
+  #pn .f{font-family:Consolas,monospace;font-size:.92em;background:rgba(0,0,0,.25);border-radius:8px;padding:8px 10px;margin:6px 0;line-height:1.55}
+</style>
+</head><body>
+<div class="a-title">Avantajele măsurătorilor cu stația totală<small>Precizie milimetrică · independență față de semnalele GNSS · versatilitate</small></div>
+<div class="opts"><button data-s="0" class="on">1 · Precizia</button><button data-s="1">2 · Fără GNSS</button><button data-s="2">3 · Versatilitate</button></div>
+<svg id="sv" viewBox="0 0 1000 680"></svg>
+<div class="a-panel" id="pn"></div>
+<script>
+(function(){
+  const {seg, lerp, ease} = AnimUI, sv = document.getElementById('sv'), pn = document.getElementById('pn'), R2G = 200/Math.PI;
+  const n3 = v => v.toLocaleString('ro-RO', {minimumFractionDigits:3, maximumFractionDigits:3});
+  // ---------- actul 1: metoda polara
+  const S = {X:5000.000, Y:3000.000}, B = {X:5180.400, Y:3095.200}, P = {X:5062.731, Y:3241.508};
+  const thSB = Math.atan2(B.Y - S.Y, B.X - S.X), thSP = Math.atan2(P.Y - S.Y, P.X - S.X), D = Math.hypot(P.X - S.X, P.Y - S.Y);
+  let alpha = (thSP - thSB)*R2G; if(alpha < 0) alpha += 400;
+  const thg = (thSB*R2G + 400) % 400;
+  function act1(f){
+    const sc = 1.9, ox = 200, oy = 600, mx = p => ox + (p.Y - S.Y)*sc, my = p => oy - (p.X - S.X)*sc;
+    let h = `<defs><marker id="an" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#fff"/></marker></defs>`;
+    for(let i=0;i<=8;i++){ h += `<line x1="${ox + i*100}" y1="60" x2="${ox + i*100}" y2="620" stroke="#1d2b47"/>`; } for(let j=0;j<=6;j++) h += `<line x1="140" y1="${oy - j*100}" x2="960" y2="${oy - j*100}" stroke="#1d2b47"/>`;
+    h += `<line x1="${mx(S)}" y1="${my(S)}" x2="${mx(S)}" y2="${my(S) - 330}" stroke="#fff" stroke-width="1.5" stroke-dasharray="6 6" marker-end="url(#an)"/><text x="${mx(S)+8}" y="${my(S)-318}" fill="#fff" font-size="18">N (X)</text>`;
+    const k1 = seg(f, 0.05, 0.25), k2 = seg(f, 0.3, 0.5), k3 = seg(f, 0.55, 0.75);
+    // vizare inapoi
+    h += `<line x1="${mx(S)}" y1="${my(S)}" x2="${lerp(mx(S), mx(B), k1)}" y2="${lerp(my(S), my(B), k1)}" stroke="#3fd0ff" stroke-width="3"/>`;
+    if(k1 > 0.99){ const r = 90, a0 = -Math.PI/2; h += `<path d="M ${mx(S)} ${my(S)-r} A ${r} ${r} 0 0 1 ${mx(S) + r*Math.sin(thSB)} ${my(S) - r*Math.cos(thSB)}" fill="none" stroke="#3fd0ff" stroke-width="2"/>
+       <text x="${mx(S) + 112*Math.sin(thSB/2)}" y="${my(S) - 112*Math.cos(thSB/2)}" fill="#3fd0ff" font-size="22" font-weight="700">θ₀</text>`; }
+    // unghiul alfa si distanta
+    if(k2 > 0){ const r = 140, a1 = thSB, a2 = thSB + (thSP - thSB)*k2;
+      h += `<path d="M ${mx(S) + r*Math.sin(a1)} ${my(S) - r*Math.cos(a1)} A ${r} ${r} 0 0 1 ${mx(S) + r*Math.sin(a2)} ${my(S) - r*Math.cos(a2)}" fill="none" stroke="#ffc940" stroke-width="3"/>
+        <text x="${mx(S) + 160*Math.sin((a1+a2)/2)}" y="${my(S) - 160*Math.cos((a1+a2)/2)}" fill="#ffc940" font-size="22" font-weight="700">α</text>`; }
+    if(k3 > 0) h += `<line x1="${mx(S)}" y1="${my(S)}" x2="${lerp(mx(S), mx(P), k3)}" y2="${lerp(my(S), my(P), k3)}" stroke="#ff9d3c" stroke-width="4"/>
+        <text x="${(mx(S)+mx(P))/2 + 10}" y="${(my(S)+my(P))/2 + 30}" fill="#ff9d3c" font-size="22" font-weight="700">D</text>`;
+    const pt = (p, n, c, show) => show ? `<circle cx="${mx(p)}" cy="${my(p)}" r="10" fill="${c}" stroke="#fff" stroke-width="2"/><text x="${mx(p)+14}" y="${my(p)-12}" fill="#fff" font-size="22" font-weight="700">${n}</text>` : '';
+    h += pt(S, 'S (stația)', '#3fd0ff', true) + pt(B, 'B (punct vechi)', '#3fd0ff', true) + pt(P, 'P (punct nou)', '#ff9d3c', f > 0.75);
+    return h;
+  }
+  // ---------- actul 2: padure — GNSS fara fix, statia masoara
+  function act2(f){
+    let h = `<rect x="0" y="520" width="1000" height="160" fill="#13202f"/>`;
+    // sateliti
+    const sats = [[120,40],[330,20],[560,30],[780,50],[930,90]];
+    sats.forEach(([x,y]) => h += `<g transform="translate(${x},${y})"><rect x="-14" y="-6" width="28" height="12" fill="#9fb4d0"/><rect x="-40" y="-4" width="22" height="8" fill="#3a6ab0"/><rect x="18" y="-4" width="22" height="8" fill="#3a6ab0"/></g>`);
+    // coronament
+    for(let i=0;i<14;i++){ const x = 470 + i*38, y = 250 + (i%3)*18; h += `<rect x="${x+12}" y="${y+60}" width="12" height="${520-y-60}" fill="#5a3d22"/><circle cx="${x+18}" cy="${y+30}" r="62" fill="${i%2 ? '#1f5a32' : '#256b3b'}" opacity=".96"/>`; }
+    // receptor GNSS sub copaci
+    const rx = 700;
+    h += `<line x1="${rx}" y1="520" x2="${rx}" y2="400" stroke="#ddd" stroke-width="6"/><ellipse cx="${rx}" cy="392" rx="26" ry="10" fill="#ddd"/>`;
+    sats.forEach(([x,y], i) => { const k = seg(f, 0.05 + i*0.05, 0.2 + i*0.05); const ex = lerp(x, rx, k*0.62), ey = lerp(y, 392, k*0.62);
+      h += `<line x1="${x}" y1="${y}" x2="${ex}" y2="${ey}" stroke="#4aa3ff" stroke-width="2" stroke-dasharray="6 5"/>`;
+      if(k > 0.95) h += `<text x="${ex}" y="${ey+8}" fill="#ff4d5e" font-size="28" font-weight="700" text-anchor="middle">✕</text>`; });
+    h += `<g transform="translate(${rx+40},420)" opacity="${seg(f,0.35,0.45)}"><rect width="210" height="74" rx="8" fill="#2a0f14" stroke="#ff4d5e"/><text x="12" y="30" fill="#ff8080" font-size="20" font-weight="700">GNSS: fără FIX</text><text x="12" y="58" fill="#ffb0b0" font-size="17">semnale blocate · multipath</text></g>`;
+    // statia totala in poiana + raza pe culoar
+    const sx = 150;
+    h += `<line x1="${sx-60}" y1="520" x2="${sx}" y2="420" stroke="#c9a46a" stroke-width="8"/><line x1="${sx+60}" y1="520" x2="${sx}" y2="420" stroke="#c9a46a" stroke-width="8"/><rect x="${sx-30}" y="360" width="60" height="62" rx="8" fill="#e8edf4"/><rect x="${sx-20}" y="370" width="70" height="22" rx="8" fill="#2c3a52"/>`;
+    const k = seg(f, 0.5, 0.7); const px = 900;
+    h += `<line x1="${sx+50}" y1="381" x2="${lerp(sx+50, px, k)}" y2="${lerp(381, 440, k)}" stroke="#ffc940" stroke-width="3"/><line x1="${px}" y1="520" x2="${px}" y2="440" stroke="#ddd" stroke-width="6"/><circle cx="${px}" cy="436" r="13" fill="#d9a21b" stroke="#fff" stroke-width="2"/>`;
+    h += `<g transform="translate(60,200)" opacity="${seg(f,0.72,0.8)}"><rect width="250" height="74" rx="8" fill="#0f2a1a" stroke="#5be39a"/><text x="12" y="30" fill="#5be39a" font-size="20" font-weight="700">Stația totală: măsoară</text><text x="12" y="58" fill="#bff5d3" font-size="17">pe culoarul liber de vizare</text></g>`;
+    return h;
+  }
+  // ---------- actul 3: versatilitate (4 aplicatii)
+  function act3(f){
+    let h = '';
+    const box = (x, y, t) => `<rect x="${x}" y="${y}" width="470" height="300" rx="14" fill="rgba(12,20,38,.9)" stroke="rgba(140,170,220,.35)"/><text x="${x+18}" y="${y+34}" fill="#ffc940" font-size="22" font-weight="700">${t}</text>`;
+    // ridicare topo
+    h += box(20, 30, 'Ridicări topografice');
+    for(let i=0;i<Math.floor(f*60);i++){ const x = 60 + (i*37 % 380), y = 90 + Math.floor(i*37/380)*38 + (i%3)*6; h += `<circle cx="${x}" cy="${y}" r="4" fill="#3fd0ff"/>`; }
+    // monitorizare
+    h += box(510, 30, 'Monitorizarea deformărilor');
+    h += `<path d="M 540 280 L 600 120 L 900 120 L 960 280 Z" fill="#3a4258" stroke="#6b7690"/>`;
+    [[620,180],[700,160],[780,160],[860,180]].forEach(([x,y],i) => { const d = 22*seg(f, 0.2 + i*0.1, 0.5 + i*0.1); h += `<circle cx="${x}" cy="${y}" r="7" fill="#d9a21b"/><line x1="${x}" y1="${y}" x2="${x + d*0.4}" y2="${y + d}" stroke="#ff4d5e" stroke-width="3"/>`; });
+    h += `<text x="750" y="310" fill="#ff8080" font-size="16" text-anchor="middle">vectori de deplasare (exagerați)</text>`;
+    // trasare
+    h += box(20, 350, 'Trasarea pe teren a proiectului');
+    const tx = lerp(120, 330, ease(seg(f, 0.1, 0.8))), ty = lerp(560, 500, ease(seg(f, 0.1, 0.8)));
+    h += `<path d="M 330 500 m -12 0 l 24 0 m -12 -12 l 0 24" stroke="#5be39a" stroke-width="3"/><circle cx="${tx}" cy="${ty}" r="10" fill="#d9a21b"/>
+      <text x="40" y="630" fill="#5be39a" font-size="18" font-family="Consolas">← ${n3(Math.max(0, (330 - tx)/1000*1.2))} m   ↑ ${n3(Math.max(0, (ty - 500)/1000*1.2))} m</text>`;
+    // constructii / infrastructura
+    h += box(510, 350, 'Construcții și infrastructură');
+    h += `<path d="M 540 600 L 960 600 L 960 560 Q 750 470 540 560 Z" fill="#555e70"/><path d="M 540 560 Q 750 470 960 560" fill="none" stroke="#ffc940" stroke-width="3" stroke-dasharray="${600*seg(f,0.1,0.8)} 2000"/>
+      <text x="750" y="630" fill="#b4c0d4" font-size="16" text-anchor="middle">drumuri, poduri, canale, diguri</text>`;
+    return h;
+  }
+  const PN = [
+    {t:'Precizia ridicată', b:`<p>Stațiile totale permit măsurători cu o precizie extrem de mare, fiind capabile să obțină coordonate și distanțe la nivel de milimetru.</p>
+       <div class="f">θ₀ = orientarea S→B = ${thg.toFixed(4)}ᵍ<br>α (măsurat) = ${alpha.toFixed(4)}ᵍ<br>D (măsurat) = ${n3(D)} m<br>θ = θ₀ + α = ${(((thSP*R2G)+400)%400).toFixed(4)}ᵍ<br>
+       X<sub>P</sub> = X<sub>S</sub> + D·cos θ = <b>${n3(P.X)}</b><br>Y<sub>P</sub> = Y<sub>S</sub> + D·sin θ = <b>${n3(P.Y)}</b></div>
+       <p style="color:var(--muted)">Orice deviație contează: la canalele de irigații, câțiva centimetri de pantă greșită schimbă curgerea apei.</p>`},
+    {t:'Independența față de semnalele GNSS', b:`<p>Stațiile totale nu depind de semnalele satelitare — sunt ideale unde semnalul GNSS este slab sau lipsește: <b>zone împădurite</b>, terenuri abrupte, lângă clădiri, sub poduri.</p>
+       <p>Sub coronament, receptorul GNSS pierde sateliții și soluția FIX; stația totală are nevoie doar de vizibilitate directă spre prismă.</p>
+       <p style="color:var(--muted)">În practică, cele două se completează: GNSS pentru punctele de sprijin, stația totală pentru detaliile din zonele acoperite.</p>`},
+    {t:'Versatilitate în aplicare', b:`<p>Stațiile totale sunt utilizate nu doar pentru ridicările topografice, ci și pentru <b>monitorizarea deformărilor</b>, <b>trasare</b>, măsurători de construcție, cadastru și proiecte de infrastructură de mari dimensiuni — drumuri și autostrăzi.</p>
+       <p style="color:var(--muted)">La monitorizare, aceleași prisme fixe se măsoară repetat; diferențele dintre epoci arată deplasarea construcției.</p>`}];
+  const DA = 13;
+  const clk = AnimUI.init({duration:3*DA, loop:true, phases:[
+    {t:0, text:'Stația se instalează pe un punct cunoscut <b>S</b> și se orientează pe un alt punct cunoscut <b>B</b>.'},
+    {t:4, text:'Se măsoară <b>unghiul α</b> și <b>distanța D</b> spre punctul nou <b>P</b> — coordonatele rezultă direct, la milimetru.'},
+    {t:DA, text:'Sub coronamentul pădurii, receptorul GNSS nu mai are sateliți suficienți — <b>fără soluție FIX</b>.'},
+    {t:DA + 6.5, text:'Stația totală are nevoie doar de o <b>linie de vizare liberă</b> spre prismă — măsoară oriunde.'},
+    {t:2*DA, text:'Același instrument: ridicări, <b>monitorizare</b>, <b>trasare</b>, construcții și infrastructură.'}]});
+  document.querySelectorAll('.opts button').forEach(b => b.onclick = () => clk.seek(+b.dataset.s*DA + 0.01));
+  let last = -1;
+  (function frame(){
+    const t = clk.update(), a = Math.min(2, Math.floor(t/DA)), f = (t - a*DA)/DA;
+    if(a !== last){ last = a; pn.innerHTML = `<div style="color:var(--cyan);font-weight:700">AVANTAJUL ${a+1}</div><div class="tt">${PN[a].t}</div>${PN[a].b}`;
+      document.querySelectorAll('.opts button').forEach(b => b.classList.toggle('on', +b.dataset.s === a)); }
+    sv.innerHTML = [act1, act2, act3][a](f);
+    requestAnimationFrame(frame);
+  })();
+})();
+</script>
+</body></html>

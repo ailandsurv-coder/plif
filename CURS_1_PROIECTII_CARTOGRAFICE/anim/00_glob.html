@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Glob</title>
+<style>html,body{margin:0;height:100%;background:transparent;overflow:hidden}#stage{position:absolute;inset:0}</style>
+<script src="../lib/three.min.js"></script><script src="../lib/topojson-client.min.js"></script>
+<script src="../lib/world-data.js"></script><script src="../lib/earth-tex.js"></script><script src="../lib/globe.js"></script>
+</head><body><div id="stage"></div>
+<script>
+  const kit = GlobeKit.create(document.getElementById('stage'), {camZ:3.6, stars:false});
+  GlobeKit.glow(kit, 1);
+  const G = GlobeKit.morphGlobe(kit, {graticule:15, step:3});
+  G.group.rotation.x = 0.35;
+  let lon = -40, last = performance.now();
+  (function f(){ const now = performance.now(); lon += (now - last)/1000*8; last = now;
+    G.set(0, {viewLon:((lon + 540) % 360) - 180}); kit.render(); requestAnimationFrame(f); })();
+</script></body></html>

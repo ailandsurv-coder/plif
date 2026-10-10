@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Norul de puncte</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/three.min.js"></script><script src="../lib/OrbitControls.js"></script>
+<script src="../lib/anim-ui.js"></script><script src="../lib/teren.js"></script>
+<style>
+  #leg{left:24px;top:120px;width:290px;font-size:clamp(12px,.95vw,16px)}#leg .r{display:flex;align-items:center;gap:8px;margin:3px 0}#leg i{width:22px;height:12px;border-radius:3px;display:inline-block}
+  #prof{left:50%;transform:translateX(-50%);bottom:150px;width:min(1100px,80vw);height:230px;padding:8px 12px;display:none}
+  #prof svg{width:100%;height:100%}
+</style>
+</head><body><div id="stage"></div>
+<div class="a-title">Norul de puncte<small>Milioane de puncte X, Y, Z — fiecare cu culoare, intensitate și clasă · scanare LiDAR / fotogrametrie din UAV</small></div>
+<div class="opts"><button data-s="0" class="on">1 · Scanarea UAV</button><button data-s="1">2 · RGB</button><button data-s="2">3 · Elevație</button><button data-s="3">4 · Intensitate</button><button data-s="4">5 · Clasificare</button><button data-s="5">6 · Doar solul (DTM)</button><button data-s="6">7 · Profil din nor</button></div>
+<div class="a-panel" id="leg"></div>
+<div class="a-panel" id="prof"><svg id="psv" viewBox="0 0 1100 220" preserveAspectRatio="none"></svg></div>
+<script>
+(function(){
+  const {seg, lerp, ease} = AnimUI, T = window.TEREN, EX = 2.5, Z0 = 60;
+  const K = T.scene(document.getElementById('stage'), {camPos:[260, 420, -620]});
+  // ---------- generarea norului
+  const N = 150000, P = [];
+  const parcel = (x, y) => { const o = T.canalOff(x, y); return Math.floor((o.s + 2000)/70) % 4; };
+  for(let i=0;i<N;i++){
+    const x = T.rnd()*T.W, y = T.rnd()*T.H, c = T.cls(x, y), kd = T.kind(x, y);
+    let z = T.surface(x, y); if(kd === 'canal') z = T.ground(x, y) + 1.8; if(c === 9 && kd === 'rau') z = T.waterZ(x) + 0.2;
+    P.push({x, y, z, g:T.ground(x, y), c, kd});
+  }
+  P.sort((a,b) => (a.c === 2 ? 0 : 1) - (b.c === 2 ? 0 : 1));          // solul primul: filtrarea = setDrawRange
+  const NG = P.filter(p => p.c === 2).length;
+  const pos = new Float32Array(N*3), cRGB = new Float32Array(N*3), cEL = new Float32Array(N*3), cIN = new Float32Array(N*3), cCL = new Float32Array(N*3);
+  const jit = () => (T.rnd() - 0.5)*0.12;
+  const RGB = {camp:[[0.47,0.58,0.25],[0.55,0.47,0.30],[0.62,0.66,0.33],[0.40,0.52,0.22]], dig:[0.38,0.52,0.25], drum:[0.72,0.70,0.64], taluz:[0.74,0.74,0.72], canal:[0.28,0.40,0.47], rau:[0.30,0.36,0.30]};
+  const CLS = {2:[0.62,0.45,0.25], 5:[0.18,0.72,0.25], 6:[0.95,0.45,0.15], 9:[0.20,0.55,0.95]};
+  P.forEach((p, i) => {
+    pos.set([p.x - T.W/2, (p.z - Z0)*EX, -(p.y - T.H/2)], 3*i);
+    let rgb = p.c === 5 ? [0.13,0.33,0.15] : p.c === 6 ? (T.rnd() < 0.7 ? [0.66,0.26,0.20] : [0.55,0.55,0.55]) : p.kd === 'camp' ? RGB.camp[parcel(p.x, p.y)] : (RGB[p.kd] || RGB.camp[0]);
+    cRGB.set(rgb.map(v => Math.max(0, Math.min(1, v + jit()))), 3*i);
+    cEL.set(T.hyps(p.z), 3*i);
+    const inten = p.c === 9 ? 0.06 : p.c === 5 ? 0.28 : p.c === 6 ? 0.7 : p.kd === 'drum' ? 0.85 : p.kd === 'taluz' ? 0.78 : 0.48;
+    const v = Math.max(0, Math.min(1, inten + (T.rnd() - 0.5)*0.18)); cIN.set([v, v, v], 3*i);
+    cCL.set(CLS[p.c], 3*i);
+  });
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(cRGB.slice(), 3));
+  const cloud = new THREE.Points(geo, new THREE.PointsMaterial({size:2.2, sizeAttenuation:false, vertexColors:true})); K.sc.add(cloud);
+  const posG = pos.slice();                                            // pozitiile inainte de filtrare
+  // drona + linia de scanare
+  const drone = new THREE.Group(); const body = new THREE.Mesh(new THREE.BoxGeometry(14, 4, 14), new THREE.MeshLambertMaterial({color:0xdddddd})); drone.add(body);
+  [[-11,-11],[11,-11],[-11,11],[11,11]].forEach(([a,b]) => { const r = new THREE.Mesh(new THREE.CylinderGeometry(6, 6, 1, 20), new THREE.MeshBasicMaterial({color:0x3fd0ff, transparent:true, opacity:.6})); r.position.set(a, 2, b); drone.add(r); });
+  const beam = new THREE.Mesh(new THREE.ConeGeometry(90, 110, 4, 1, true), new THREE.MeshBasicMaterial({color:0xff3b3b, transparent:true, opacity:.16, side:THREE.DoubleSide}));
+  beam.position.y = -55; beam.rotation.y = Math.PI/4; drone.add(beam); K.sc.add(drone);
+  // felia pentru profil (x = 430)
+  const XS = 430, slab = new THREE.Mesh(new THREE.BoxGeometry(4, 140, T.H), new THREE.MeshBasicMaterial({color:0xffd84a, transparent:true, opacity:0.18, depthWrite:false}));
+  slab.position.set(XS - T.W/2, 20, 0); K.sc.add(slab);
+  // fâșia profilului: eșantionare densă dedicată (pentru panoul 2D)
+  const prof = []; for(let i=0;i<2600;i++){ const x = XS + (T.rnd() - 0.5)*3.2, y = T.rnd()*T.H, c = T.cls(x, y), kd = T.kind(x, y);
+    let z = T.surface(x, y); if(kd === 'canal') z = T.ground(x, y) + 1.8; if(c === 9 && kd === 'rau') z = T.waterZ(x) + 0.2; prof.push({p:{x, y, z, g:T.ground(x, y), c}}); }
+  prof.sort((a, b) => b.p.y - a.p.y);
+
+  const LEG = [
+    '<h4>Scanarea din UAV</h4><div>Drona zboară pe benzi paralele; scanerul LiDAR (sau camera, la fotogrametrie) înregistrează sute de mii de puncte pe secundă. Fiecare punct are coordonatele X, Y, Z.</div>',
+    '<h4>Culori reale (RGB)</h4><div>Culoarea fiecărui punct este preluată din fotografiile aeriene — norul arată ca o imagine 3D: parcele, canalul cu taluzurile betonate, drumul de pe dig, arborii, satul.</div>',
+    '<h4>Elevație</h4><div>Colorarea după cota Z face relieful vizibil: valea râului, digurile canalului, câmpia.</div>',
+    '<h4>Intensitate</h4><div>Puterea semnalului LiDAR întors: betonul și pietrișul reflectă puternic (deschis), apa aproape deloc (negru).</div>',
+    `<h4>Clasificare (coduri ASPRS)</h4>${[['#9e7340','2 — sol'],['#2eb840','5 — vegetație înaltă'],['#f27326','6 — clădiri'],['#338cf2','9 — apă']].map(([c,t]) => `<div class="r"><i style="background:${c}"></i>${t}</div>`).join('')}<div>Software-ul atribuie automat fiecărui punct o clasă; operatorul verifică și corectează.</div>`,
+    '<h4>Doar solul — punctele DTM</h4><div>Se păstrează doar clasa 2 (sol): arborii și clădirile dispar. Din aceste puncte se generează DTM, curbele de nivel și profilele.</div>',
+    '<h4>Profil extras din nor</h4><div>Punctele dintr-o fâșie îngustă (±1,6 m) de-a lungul unei linii dau direct profilul terenului: digurile și canalul, valea râului, arborii.</div>'];
+  const T0 = [0, 8, 13, 18, 23, 29, 36], DUR = 46;
+  const clk = AnimUI.init({duration:DUR, loop:true, phases:[
+    {t:0, text:'Zborul UAV cu scanare <b>LiDAR</b>: fiecare impuls laser întors devine un punct cu coordonate X, Y, Z.'},
+    {t:8, text:'<b>Norul de puncte</b> colorat cu culorile reale din fotografii — aceeași zonă ca în planșele proiectului: canal magistral, râu, sat.'},
+    {t:13, text:'Colorat după <b>elevație</b>: relieful apare imediat.'},
+    {t:18, text:'Colorat după <b>intensitate</b>: reflectanța suprafețelor — beton, pietriș, vegetație, apă.'},
+    {t:23, text:'<b>Clasificarea</b>: sol, vegetație, clădiri, apă — pasul cheie înainte de modelul terenului.'},
+    {t:29, text:'Se filtrează tot ce nu este sol: rămân <b>punctele DTM</b>.'},
+    {t:36, text:'Din nor se extrag direct <b>profile</b> — secțiuni verticale prin teren, canal și diguri.'}]});
+  document.querySelectorAll('.opts button').forEach(b => b.onclick = () => clk.seek(T0[+b.dataset.s] + 0.01));
+  const col = geo.attributes.color, P3 = geo.attributes.position;
+  const lerpCol = (a, b, f) => { for(let i=0;i<col.array.length;i++) col.array[i] = a[i] + (b[i] - a[i])*f; col.needsUpdate = true; };
+  let lastA = -1, hidden = false, fallen = false, colState = '';
+  const psv = document.getElementById('psv'), profEl = document.getElementById('prof');
+  function drawProfile(k){
+    const gs = prof.map(o => o.p.g), zmin = Math.min(...gs) - 1, zmax = Math.max(...gs) + 6, X = y => 20 + y/T.H*1060, Y = z => Math.max(22, 205 - (z - zmin)/(zmax - zmin)*183);
+    let h = `<line x1="20" y1="205" x2="1080" y2="205" stroke="#2f4566"/><text x="24" y="16" fill="#ffd84a" font-size="14" font-weight="700">Profil extras din nor (X = ${XS} m) · nord (stânga) → sud (dreapta) · scară verticală exagerată</text>`;
+    const n = Math.floor(prof.length*k);
+    for(let i=0;i<n;i++){ const p = prof[i].p, c = CLS[p.c]; h += `<circle cx="${X(T.H - p.y).toFixed(1)}" cy="${Y(p.z).toFixed(1)}" r="2.2" fill="rgb(${c.map(v => Math.round(v*255)).join(',')})"/>`; }
+    psv.innerHTML = h;
+  }
+  (function frame(){
+    const t = clk.update(), a = T0.reduce((acc, v, i) => t >= v ? i : acc, 0);
+    if(a !== lastA){ lastA = a; document.getElementById('leg').innerHTML = LEG[a]; document.querySelectorAll('.opts button').forEach(b => b.classList.toggle('on', +b.dataset.s === a)); }
+    // scanarea: 3 benzi, drona pe benzi alternante
+    const sc = seg(t, 0.2, 7.5, x=>x)*3, lane = Math.min(2, Math.floor(sc)), fr = Math.min(1, sc - lane), lx = lane % 2 ? T.W*(1 - fr) : T.W*fr, ly = (lane + 0.5)*T.H/3;
+    drone.visible = t < 8; drone.position.set(lx - T.W/2, 120, -(ly - T.H/2));
+    // starea norului: ascuns parțial (scanare), complet, sau filtrat (doar solul)
+    if(t < 8){
+      for(let i=0;i<N;i++){ const p = P[i], l = Math.min(2, Math.floor(p.y/(T.H/3))), done = l < lane || (l === lane && (lane % 2 ? p.x > lx : p.x < lx));
+        P3.array[3*i+1] = done ? posG[3*i+1] : -999; }
+      P3.needsUpdate = true; hidden = true; fallen = false; geo.setDrawRange(0, N);
+      if(colState !== 'rgb'){ lerpCol(cRGB, cRGB, 0); colState = 'rgb'; }
+    } else {
+      if(hidden || (a < 5 && fallen)){ P3.array.set(posG); P3.needsUpdate = true; hidden = false; fallen = false; }
+      if(a < 5){ geo.setDrawRange(0, N); const src = [cRGB, cRGB, cEL, cIN, cCL], f = seg(t, T0[a], T0[a] + 1.2); lerpCol(src[a-1] || cRGB, src[a], f); colState = 'mix'; }
+      else {
+        if(colState !== 'cls'){ lerpCol(cCL, cCL, 0); colState = 'cls'; }
+        const f = a === 5 ? seg(t, 29.5, 33) : 1;
+        for(let i=NG;i<N;i++){ const q = P[i]; P3.array[3*i+1] = lerp((q.z - Z0)*EX, (q.g - Z0)*EX - 4, ease(f)); }
+        P3.needsUpdate = true; fallen = true; geo.setDrawRange(0, f >= 1 ? NG : N);
+      }
+    }
+    slab.visible = a === 6; profEl.style.display = a === 6 ? 'block' : 'none'; if(a === 6) drawProfile(seg(t, 36.5, 41, x=>x));
+    K.render(); requestAnimationFrame(frame);
+  })();
+})();
+</script>
+</body></html>

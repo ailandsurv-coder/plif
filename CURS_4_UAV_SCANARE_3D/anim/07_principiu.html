@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Principiul fotogrametriei</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/anim-ui.js"></script>
+<style>
+  #sv{position:absolute;left:0;top:92px;width:66%;height:calc(100vh - 250px)}
+  #pn{right:20px;top:110px;width:calc(34% - 30px);bottom:150px;overflow:hidden;font-size:clamp(13px,1.1vw,19px)}
+  #pn .tt{font-size:1.4em;font-weight:700;margin:2px 0 8px}
+  #pn .f{font-family:Consolas,monospace;background:rgba(0,0,0,.28);border-radius:8px;padding:8px 10px;margin:6px 0;line-height:1.55;font-size:.95em}
+  #pn label{display:block;margin:8px 0 2px;color:var(--muted)}
+  #pn input[type=range]{width:100%}
+  #pn select{width:100%;background:#16233f;color:#fff;border:1px solid var(--line);border-radius:8px;padding:6px;font-size:inherit}
+  #pn .kv{display:grid;grid-template-columns:1fr auto;gap:3px 10px;margin-top:8px}#pn .kv b{color:var(--gold);text-align:right}
+</style>
+</head><body>
+<div class="a-title">Principiul fotogrametriei<small>O imagine dă doar direcții · două imagini dau poziția 3D (triangulație) · rezoluția la sol (GSD) · suprapunerea</small></div>
+<div class="opts" style="flex-direction:row;top:62px"><button data-s="0" class="on">1 · O imagine</button><button data-s="1">2 · Două imagini</button><button data-s="2">3 · GSD</button><button data-s="3">4 · Suprapunerea</button></div>
+<svg id="sv" viewBox="0 0 1000 680"></svg>
+<div class="a-panel" id="pn"></div>
+<script>
+(function(){
+  const {seg, lerp, ease} = AnimUI, sv = document.getElementById('sv'), pn = document.getElementById('pn');
+  const GY = 600;                                                     // linia solului
+  const terr = x => GY - 40 - 26*Math.sin(x/120) - 14*Math.sin(x/47 + 1);
+  const terrPath = () => { let d = 'M0 680'; for(let x=0;x<=1000;x+=8) d += ` L${x} ${terr(x).toFixed(1)}`; return d + ' L1000 680Z'; };
+  const tree = (x, h) => `<rect x="${x-4}" y="${terr(x)-h*0.45}" width="8" height="${h*0.45}" fill="#5a3d22"/><ellipse cx="${x}" cy="${terr(x)-h*0.62}" rx="${h*0.32}" ry="${h*0.4}" fill="#2f7a3e"/>`;
+  function cam(x, y, lbl, col){ return `<g transform="translate(${x},${y})"><rect x="-26" y="-18" width="52" height="30" rx="5" fill="#2b3442" stroke="${col||'#9fb4d0'}" stroke-width="2"/>
+      <rect x="-12" y="12" width="24" height="10" fill="#111"/><line x1="-46" y1="34" x2="46" y2="34" stroke="#ffd84a" stroke-width="3"/><text x="0" y="-28" fill="#fff" font-size="20" text-anchor="middle" font-weight="700">${lbl}</text></g>`; }
+  const ray = (x1, y1, x2, y2, col, w, dash) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${col}" stroke-width="${w||2}" ${dash ? 'stroke-dasharray="7 6"' : ''}/>`;
+  const dot = (x, y, col, r) => `<circle cx="${x}" cy="${y}" r="${r||7}" fill="${col}" stroke="#fff" stroke-width="2"/>`;
+  // ---------------- act 1: o imagine — ambiguitatea pe rază
+  function act1(f){
+    const C = [380, 120], P = [600, terr(600)];
+    let h = `<path d="${terrPath()}" fill="#3a2e1f" stroke="#c9a46a" stroke-width="3"/>` + tree(820, 120);
+    h += cam(C[0], C[1], 'C₁');
+    const k = seg(f, 0.1, 0.4), ex = lerp(C[0], P[0] + (P[0] - C[0])*0.25, k), ey = lerp(C[1] + 34, P[1] + (P[1] - C[1])*0.25, k);
+    h += ray(C[0], C[1] + 34, ex, ey, '#3fd0ff', 3);
+    const ip = [C[0] + (P[0] - C[0])*34/(P[1] - C[1]), C[1] + 34];
+    h += dot(ip[0], ip[1], '#ffd84a', 6) + `<text x="${ip[0] + 10}" y="${ip[1] - 8}" fill="#ffd84a" font-size="17">p (pixel)</text>`;
+    if(f > 0.45){ const a = seg(f, 0.45, 0.75);
+      [0.45, 0.7, 1].forEach((t, i) => { const x = C[0] + (P[0] - C[0])*t, y = C[1] + (P[1] - C[1])*t; h += `<g opacity="${a}">${dot(x, y, ['#ff9d3c','#ff6262','#5be39a'][i], 8)}<text x="${x + 14}" y="${y + 6}" fill="#fff" font-size="18">${['A','B','P'][i]}</text></g>`; });
+      h += `<text x="40" y="60" fill="#ff8080" font-size="24" font-weight="700" opacity="${a}">A, B și P apar în același pixel — adâncimea nu se poate afla dintr-o singură imagine</text>`; }
+    return h;
+  }
+  // ---------------- act 2: două imagini — triangulația și paralaxa
+  function act2(f){
+    const C1 = [300, 220], C2 = [700, 220], up = ease(seg(f, 0.55, 0.85)), Px = 520, Pg = terr(Px), Py = lerp(Pg, Pg - 120, up);
+    let h = `<path d="${terrPath()}" fill="#3a2e1f" stroke="#c9a46a" stroke-width="3"/>`;
+    if(up > 0) h += `<rect x="${Px - 30}" y="${Py}" width="60" height="${Pg - Py}" fill="#6b7690" stroke="#9fb4d0" opacity="${up}"/><text x="${Px + 36}" y="${Py + 20}" fill="#cfd8e6" font-size="16" opacity="${up}">acoperișul unei clădiri</text>`;
+    h += cam(C1[0], C1[1], 'C₁') + cam(C2[0], C2[1], 'C₂');
+    h += `<line x1="${C1[0]}" y1="${C1[1] - 50}" x2="${C2[0]}" y2="${C2[1] - 50}" stroke="#b4c0d4" stroke-width="1.5"/><text x="${(C1[0] + C2[0])/2}" y="${C1[1] - 58}" fill="#b4c0d4" font-size="17" text-anchor="middle">baza B (distanța dintre fotografii)</text>`;
+    const k = seg(f, 0.05, 0.35);
+    [C1, C2].forEach((C, i) => { h += ray(C[0], C[1] + 34, lerp(C[0], Px, k), lerp(C[1] + 34, Py, k), i ? '#ff9d3c' : '#3fd0ff', 3);
+      const ix = C[0] + (Px - C[0])*34/(Py - C[1]); h += dot(ix, C[1] + 34, '#ffd84a', 6); });
+    if(k >= 1) h += dot(Px, Py, '#5be39a', 10) + `<text x="${Px - 14}" y="${Py - 16}" fill="#5be39a" font-size="20" font-weight="700" text-anchor="end">P (X, Y, Z)</text>`;
+    if(f > 0.35) h += `<text x="40" y="60" fill="#5be39a" font-size="24" font-weight="700" opacity="${seg(f, 0.35, 0.45)}">Razele omoloage se intersectează într-un singur punct — triangulația</text>`;
+    if(f > 0.6){ const i1 = C1[0] + (Px - C1[0])*34/(Py - C1[1]), i2 = C2[0] + (Px - C2[0])*34/(Py - C2[1]);
+      h += `<text x="40" y="96" fill="#ffd84a" font-size="20" opacity="${seg(f, 0.6, 0.7)}">Cu cât punctul e mai sus, cu atât imaginile lui se depărtează în cele două fotografii (paralaxa) — de aici rezultă cota.</text>`; }
+    return h;
+  }
+  // ---------------- act 3: GSD
+  const CAMS = [{n:'senzor 1″ · 20 MP · f = 8,8 mm', w:13.2, px:5472, py:3648, f:8.8}, {n:'senzor 4/3″ · 20 MP · f = 12,3 mm', w:17.3, px:5280, py:3956, f:12.3}, {n:'full-frame · 45 MP · f = 35 mm', w:35.9, px:8192, py:5460, f:35}];
+  let camI = 0, Hm = 80, userH = false;
+  function act3(f, auto){
+    if(auto && !userH) Hm = Math.round(lerp(40, 140, 0.5 - 0.5*Math.cos(f*Math.PI*2)));
+    const c = CAMS[camI], p = c.w/c.px, gsd = Hm*p/c.f*100, fw = gsd*c.px/100, fh = gsd*c.py/100;
+    const sc = 3.2, cx = 420, cy = GY - Hm*sc*1.05 - 40;
+    let h = `<rect x="0" y="${GY}" width="1000" height="80" fill="#3a2e1f"/><line x1="0" y1="${GY}" x2="1000" y2="${GY}" stroke="#c9a46a" stroke-width="3"/>`;
+    const half = Math.min(470, fw/2*sc*0.55);
+    h += `<polygon points="${cx},${cy + 20} ${cx - half},${GY} ${cx + half},${GY}" fill="rgba(63,208,255,.12)" stroke="#3fd0ff" stroke-width="2"/>`;
+    h += cam(cx, cy, '') + `<line x1="${cx + 70}" y1="${cy + 20}" x2="${cx + 70}" y2="${GY}" stroke="#fff" stroke-width="1.5"/><text x="${cx + 80}" y="${(cy + GY)/2}" fill="#fff" font-size="22" font-weight="700">H = ${Hm} m</text>`;
+    h += `<text x="${cx}" y="${GY + 32}" fill="#3fd0ff" font-size="19" text-anchor="middle">amprenta la sol: ${fw.toFixed(0)} × ${fh.toFixed(0)} m</text>`;
+    // grilă de pixeli la sol (zoom)
+    const zx = 760, zy = 140, zs = 200, n = Math.max(3, Math.min(40, Math.round(20/gsd)));
+    h += `<rect x="${zx}" y="${zy}" width="${zs}" height="${zs}" fill="#4d6b34" stroke="#ffd84a" stroke-width="2"/>`;
+    for(let i=1;i<n;i++){ h += `<line x1="${zx + i*zs/n}" y1="${zy}" x2="${zx + i*zs/n}" y2="${zy + zs}" stroke="rgba(255,255,255,.35)"/><line x1="${zx}" y1="${zy + i*zs/n}" x2="${zx + zs}" y2="${zy + i*zs/n}" stroke="rgba(255,255,255,.35)"/>`; }
+    h += `<text x="${zx + zs/2}" y="${zy - 12}" fill="#ffd84a" font-size="17" text-anchor="middle">o porțiune de 20 × 20 cm de teren</text><text x="${zx + zs/2}" y="${zy + zs + 26}" fill="#fff" font-size="17" text-anchor="middle">${n} × ${n} pixeli</text>`;
+    pn.querySelector('#gv').textContent = gsd.toFixed(2).replace('.', ',') + ' cm/px';
+    pn.querySelector('#fp').textContent = fw.toFixed(0) + ' × ' + fh.toFixed(0) + ' m';
+    pn.querySelector('#ap').textContent = '≈ ' + (gsd*1.5).toFixed(1).replace('.', ',') + ' cm';
+    pn.querySelector('#av').textContent = '≈ ' + (gsd*2.5).toFixed(1).replace('.', ',') + ' cm';
+    pn.querySelector('#hv').textContent = Hm + ' m'; pn.querySelector('#hr').value = Hm;
+    return h;
+  }
+  // ---------------- act 4: suprapunerea longitudinală
+  function act4(f){
+    const n = 7, fw = 260, step = fw*0.2, x0 = 140, k = seg(f, 0.05, 0.6, x=>x), shown = Math.max(1, Math.ceil(n*k));
+    let h = `<path d="${terrPath()}" fill="#3a2e1f" stroke="#c9a46a" stroke-width="3"/>`;
+    const P = 420;
+    for(let i=0;i<shown;i++){ const cx = x0 + i*step + fw/2, sees = P >= x0 + i*step && P <= x0 + i*step + fw;
+      h += `<polygon points="${cx},150 ${x0 + i*step},${GY - 46} ${x0 + i*step + fw},${GY - 46}" fill="${sees ? 'rgba(91,227,154,.10)' : 'rgba(63,208,255,.06)'}" stroke="${sees ? '#5be39a' : '#3fd0ff'}" stroke-width="1.2"/>`;
+      h += `<rect x="${cx - 14}" y="138" width="28" height="18" rx="3" fill="#2b3442" stroke="#9fb4d0"/>`; }
+    h += `<line x1="${x0}" y1="110" x2="${x0 + (n - 1)*step + fw}" y2="110" stroke="#ffc940" stroke-width="2" stroke-dasharray="8 6"/><text x="${x0}" y="100" fill="#ffc940" font-size="17">direcția de zbor →</text>`;
+    const seen = [...Array(shown).keys()].filter(i => P >= x0 + i*step && P <= x0 + i*step + fw).length;
+    h += dot(P, terr(P), '#5be39a', 9) + `<text x="${P + 14}" y="${terr(P) + 30}" fill="#5be39a" font-size="20" font-weight="700">punctul apare în ${seen} imagini</text>`;
+    h += `<text x="40" y="60" fill="#fff" font-size="22">Suprapunere longitudinală 80 %: o fotografie nouă la fiecare 20 % din lungimea amprentei.</text>`;
+    return h;
+  }
+  const PN = [
+    `<div class="tt">O singură imagine</div><p>Fiecare pixel al fotografiei corespunde unei <b>raze</b> care pleacă din centrul obiectivului. Pe raza respectivă pot sta oricâte puncte — la distanțe diferite.</p><p>Dintr-o singură fotografie se cunoaște doar <b>direcția</b> spre punct, nu și distanța.</p>`,
+    `<div class="tt">Două imagini — triangulația</div><p>Același punct, fotografiat din două poziții, dă două raze care se <b>intersectează</b>: aceasta este poziția 3D a punctului (X, Y, Z).</p><p>Diferența de poziție a punctului în cele două imagini se numește <b>paralaxă</b>: cu cât punctul e mai înalt, cu atât paralaxa e mai mare.</p><div class="f">Z ≈ H − (B · f) / paralaxă</div>`,
+    `<div class="tt">Rezoluția la sol (GSD)</div><div class="f">GSD = H × p / f</div><div style="color:var(--muted);font-size:.85em">H — altitudinea de zbor · p — dimensiunea pixelului pe senzor · f — distanța focală</div>
+      <label>Camera</label><select id="cs">${CAMS.map((c, i) => `<option value="${i}">${c.n}</option>`).join('')}</select>
+      <label>Altitudinea de zbor: <b id="hv"></b></label><input id="hr" type="range" min="30" max="150" step="5">
+      <div class="kv"><span>GSD</span><b id="gv"></b><span>Amprenta unei imagini</span><b id="fp"></b><span>Precizie planimetrică așteptată</span><b id="ap"></b><span>Precizie altimetrică așteptată</span><b id="av"></b></div>
+      <div style="color:var(--muted);font-size:.8em;margin-top:8px">Precizia orientativă: ~1–2 × GSD în plan și ~2–3 × GSD pe verticală, cu puncte de control și georeferențiere RTK/PPK.</div>`,
+    `<div class="tt">Suprapunerea</div><p>Ca fiecare punct să fie triangulat sigur, el trebuie să apară în <b>mai multe imagini</b>.</p><ul><li><b>longitudinală</b> (pe direcția de zbor): 75–85 %</li><li><b>laterală</b> (între benzi): 60–75 %</li></ul><p>Pe vegetație, apă sau teren uniform (culturi, zăpadă) se măresc suprapunerile — altfel software-ul nu găsește destule puncte comune.</p>`];
+  const T0 = [0, 9, 20, 34], DUR = [9, 11, 14, 10];
+  const clk = AnimUI.init({duration:44, loop:true, phases:[
+    {t:0, text:'Dintr-o singură fotografie se cunoaște doar <b>direcția</b> spre un punct — nu și distanța până la el.'},
+    {t:9, text:'Cu <b>două fotografii</b> din poziții diferite, razele se intersectează: poziția 3D a punctului.'},
+    {t:20, text:'<b>GSD</b> — mărimea unui pixel pe teren. Crește odată cu altitudinea de zbor; schimbă camera și altitudinea din panou.'},
+    {t:34, text:'<b>Suprapunerea</b>: fiecare punct trebuie să apară în mai multe imagini — de obicei 80 % pe direcția de zbor.'}]});
+  document.querySelectorAll('.opts button').forEach(b => b.onclick = () => clk.seek(T0[+b.dataset.s] + 0.01));
+  let last = -1;
+  (function frame(){
+    const t = clk.update(), a = T0.reduce((acc, v, i) => t >= v ? i : acc, 0), f = (t - T0[a])/DUR[a];
+    if(a !== last){ last = a; pn.innerHTML = `<div style="color:var(--cyan);font-weight:700">PASUL ${a+1}</div>` + PN[a];
+      document.querySelectorAll('.opts button').forEach(b => b.classList.toggle('on', +b.dataset.s === a));
+      if(a === 2){ const cs = pn.querySelector('#cs'), hr = pn.querySelector('#hr'); cs.value = camI;
+        cs.onchange = e => { camI = +e.target.value; }; hr.oninput = e => { Hm = +e.target.value; userH = true; clk.pause(); }; } }
+    sv.innerHTML = [act1, act2, f2 => act3(f2, clk.playing), act4][a](f);
+    requestAnimationFrame(frame);
+  })();
+})();
+</script>
+</body></html>

@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Alte tipuri de proiecții cartografice</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/d3.min.js"></script><script src="../lib/d3-geo-projection.min.js"></script><script src="../lib/topojson-client.min.js"></script>
+<script src="../lib/world-data.js"></script><script src="../lib/anim-ui.js"></script>
+<style>
+  #list{position:absolute;left:20px;top:100px;bottom:150px;width:230px;overflow-y:auto;display:flex;flex-direction:column;gap:5px}
+  #list button{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:7px 10px;text-align:left;cursor:pointer;font-size:clamp(12px,.95vw,16px);font-family:inherit}
+  #list button.on{background:var(--cyan);color:#04111f;font-weight:700}
+  #cv{position:absolute;left:265px;top:100px;width:calc(100% - 635px);height:calc(100vh - 262px)}
+  #info{right:20px;top:100px;width:330px}
+  #info .nm{font-size:1.5em;font-weight:700;margin-bottom:6px}
+  .chip{display:inline-block;border-radius:12px;padding:2px 10px;margin:2px 4px 2px 0;font-size:.85em;font-weight:700;color:#04111f}
+  #tog{position:absolute;right:20px;bottom:96px;display:flex;gap:6px}
+  @media (max-width:900px){#list,#info{display:none}#cv{left:0;width:100%}}
+</style>
+</head><body>
+<div class="a-title">Alte tipuri de proiecții cartografice<small>Aceeași Terra, alte compromisuri — cercurile Tissot arată ce se păstrează și ce se deformează</small></div>
+<div id="list"></div>
+<canvas id="cv"></canvas>
+<div class="a-panel" id="info"></div>
+<div id="tog"><button class="btn on" id="tT">Cercuri Tissot</button><button class="btn on" id="tG">Rețea</button></div>
+<script>
+(function(){
+  const R = d3, D2R = Math.PI/180;
+  const CH = {conf:['conformă','#3fd0ff'], ech:['echivalentă','#5be39a'], eqd:['echidistantă','#b48cff'], comp:['compromis','#ffc940']};
+  const LIST = [
+    {n:'Plate carrée (cilindrică echidistantă)', raw:R.geoEquirectangularRaw, c:['eqd'], u:'Cea mai simplă: x = λ, y = φ. Formatul standard al rasterelor globale (date satelitare, modele climatice).', a:'Marin din Tyr, ~100 d.Hr.'},
+    {n:'Lambert cilindrică echivalentă', raw:R.geoCylindricalEqualAreaRaw(0), c:['ech'], u:'Cilindru tangent la ecuator; suprafețele exacte, formele turtite puternic spre poli.', a:'J. H. Lambert, 1772'},
+    {n:'Gall–Peters', raw:R.geoCylindricalEqualAreaRaw(45*D2R), c:['ech'], u:'Cilindrică echivalentă cu paralele standard la 45°; promovată ca alternativă „corectă" la Mercator.', a:'J. Gall 1855 / A. Peters 1973'},
+    {n:'Miller', raw:R.geoMillerRaw, c:['comp'], u:'Mercator „îmblânzit": polii devin reprezentabili; folosită în atlase.', a:'O. M. Miller, 1942'},
+    {n:'Sinusoidală (Sanson–Flamsteed)', raw:R.geoSinusoidalRaw, c:['ech'], u:'Paralele în lungime reală; meridiane sinusoide. Folosită de NASA pentru produsele MODIS.', a:'sec. XVI'},
+    {n:'Mollweide', raw:R.geoMollweideRaw, c:['ech'], u:'Elipsă 2:1; preferată pentru hărți globale tematice și pentru cerul înstelat (fondul cosmic de microunde).', a:'K. B. Mollweide, 1805'},
+    {n:'Eckert IV', raw:R.geoEckert4Raw, c:['ech'], u:'Poli reprezentați ca linii (jumătate din ecuator); aspect echilibrat pentru hărți de distribuție.', a:'M. Eckert, 1906'},
+    {n:'Equal Earth', raw:R.geoEqualEarthRaw, c:['ech'], u:'Proiecție modernă, echivalentă, cu aspect apropiat de Robinson; adoptată de NASA și multe instituții.', a:'Šavrič, Patterson, Jenny — 2018'},
+    {n:'Robinson', raw:R.geoRobinsonRaw, c:['comp'], u:'Definită prin tabel, nu prin formulă; aleasă pentru aspect vizual — atlase școlare, National Geographic (1988–1998).', a:'A. H. Robinson, 1963'},
+    {n:'Winkel Tripel', raw:R.geoWinkel3Raw, c:['comp'], u:'Media dintre Aitoff și plate carrée; minimizează suma deformărilor. Standard National Geographic din 1998.', a:'O. Winkel, 1921'},
+    {n:'Natural Earth', raw:R.geoNaturalEarth1Raw, c:['comp'], u:'Compromis polinomial cu colțuri rotunjite; folosită des în cartografia digitală.', a:'T. Patterson, 2011'},
+    {n:'Van der Grinten', raw:R.geoVanDerGrintenRaw, c:['comp'], u:'Întreaga lume într-un cerc; mult timp harta de referință a National Geographic (1922–1988).', a:'A. van der Grinten, 1898'},
+    {n:'Aitoff', raw:R.geoAitoffRaw, c:['comp'], u:'Derivată din azimutala echidistantă, „întinsă" pe orizontală.', a:'D. A. Aitoff, 1889'},
+    {n:'Hammer', raw:R.geoHammerRaw(2), c:['ech'], u:'Derivată din azimutala echivalentă Lambert; contur eliptic, meridiane curbe.', a:'E. Hammer, 1892'},
+    {n:'Albers conică echivalentă', raw:R.geoConicEqualAreaRaw(20*D2R, 50*D2R), c:['ech'], u:'Două paralele standard; standard pentru hărțile SUA și pentru țări întinse pe longitudine.', a:'H. C. Albers, 1805'},
+    {n:'Bonne', raw:R.geoBonneRaw(45*D2R), c:['ech'], u:'Pseudoconică „în formă de inimă"; folosită în trecut în atlase și la hărți topografice (Franța, sec. XIX).', a:'R. Bonne, 1752'},
+    {n:'Lambert azimutală echivalentă', raw:R.geoAzimuthalEqualAreaRaw, c:['ech'], u:'Varianta centrată pe Europa este <b>ETRS89-LAEA (EPSG:3035)</b> — grila statistică a UE și INSPIRE.', a:'J. H. Lambert, 1772'},
+    {n:'Azimutală echidistantă', raw:R.geoAzimuthalEquidistantRaw, c:['eqd'], u:'Distanțele și direcțiile față de centru sunt corecte; emblema ONU (centrată pe Polul Nord), radiocomunicații.', a:'sec. XVI'}];
+  const land = topojson.feature(WORLD_C110, WORLD_C110.objects.land), borders = topojson.mesh(WORLD_C110, WORLD_C110.objects.countries, (a,b) => a !== b);
+  const grat = R.geoGraticule10(), sphere = {type:'Sphere'};
+  const tis = []; for(let lon=-150; lon<=150; lon+=30) for(let lat=-60; lat<=60; lat+=30) tis.push(R.geoCircle().center([lon, lat]).radius(5).precision(10)());
+  const tisF = {type:'GeometryCollection', geometries:tis};
+
+  const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+  let W, H;
+  function rs(){ const dpr = Math.min(2, devicePixelRatio||1); W = cv.clientWidth; H = cv.clientHeight; cv.width = W*dpr; cv.height = H*dpr; ctx.setTransform(dpr,0,0,dpr,0,0); }
+  addEventListener('resize', () => { rs(); render(); }); rs();
+
+  let showT = true, showG = true;
+  const interp = (a, b, t) => (l, f) => { const p = a(l, f), q = b(l, f); return [p[0] + (q[0]-p[0])*t, p[1] + (q[1]-p[1])*t]; };
+  let cur = 0, from = 0, k = 0;
+  function render(){
+    const raw = k >= 1 ? LIST[cur].raw : interp(LIST[from].raw, LIST[cur].raw, d3.easeCubicInOut(k));
+    const pr = R.geoProjection(raw).rotate([-12, 0]).precision(0.3).fitExtent([[12, 12], [W - 12, H - 12]], sphere);
+    const path = R.geoPath(pr, ctx);
+    ctx.clearRect(0, 0, W, H);
+    ctx.beginPath(); path(sphere); ctx.fillStyle = '#123a6b'; ctx.fill();
+    if(showG){ ctx.beginPath(); path(grat); ctx.strokeStyle = 'rgba(160,200,255,.35)'; ctx.lineWidth = 0.8; ctx.stroke(); }
+    ctx.beginPath(); path(land); ctx.fillStyle = '#d9c9a0'; ctx.fill();
+    ctx.beginPath(); path(borders); ctx.strokeStyle = 'rgba(80,60,30,.45)'; ctx.lineWidth = 0.6; ctx.stroke();
+    if(showT){ ctx.beginPath(); path(tisF); ctx.fillStyle = 'rgba(255,80,80,.55)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,220,220,.9)'; ctx.lineWidth = 0.8; ctx.stroke(); }
+    ctx.beginPath(); path(sphere); ctx.strokeStyle = '#9fc6ff'; ctx.lineWidth = 1.6; ctx.stroke();
+  }
+  const list = document.getElementById('list'), info = document.getElementById('info');
+  LIST.forEach((p,i) => { const b = document.createElement('button'); b.textContent = p.n; b.onclick = () => { go(i); clk.seek(i*D + 0.01); clk.pause(); }; list.appendChild(b); });
+  function go(i){
+    if(i === cur && k >= 1) return;
+    from = cur; cur = i; k = 0;
+    [...list.children].forEach((b,j) => b.classList.toggle('on', j === i));
+    list.children[i].scrollIntoView({block:'nearest'});
+    const p = LIST[i];
+    info.innerHTML = `<div class="nm">${p.n}</div>${p.c.map(c => `<span class="chip" style="background:${CH[c][1]}">${CH[c][0]}</span>`).join('')}
+      <p style="margin:10px 0">${p.u}</p><div style="color:var(--muted)">${p.a}</div>`;
+  }
+  document.getElementById('tT').onclick = e => { showT = !showT; e.target.classList.toggle('on', showT); render(); };
+  document.getElementById('tG').onclick = e => { showG = !showG; e.target.classList.toggle('on', showG); render(); };
+
+  const D = 6;
+  const clk = AnimUI.init({duration:LIST.length*D, loop:true, phases:[{t:0, text:'Nicio proiecție nu păstrează simultan <b>unghiurile, suprafețele și distanțele</b>. Alegerea depinde de scop: navigație, statistică, inginerie, ilustrație.'}]});
+  go(0); k = 1; render();
+  let last = performance.now(), lastT = 0;
+  (function frame(){
+    const t = clk.update(), i = Math.min(LIST.length - 1, Math.floor(t / D));
+    if(t !== lastT && i !== cur) go(i);
+    lastT = t;
+    if(k < 1){ k = Math.min(1, k + (performance.now() - last)/1300); render(); }
+    last = performance.now();
+    requestAnimationFrame(frame);
+  })();
+})();
+</script>
+</body></html>

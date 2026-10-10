@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Scanarea LiDAR din UAV</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/three.min.js"></script><script src="../lib/OrbitControls.js"></script>
+<script src="../lib/anim-ui.js"></script><script src="../lib/teren.js"></script><script src="../lib/drona.js"></script>
+<style>
+  #sv{position:absolute;left:16px;right:16px;top:150px;height:calc(100vh - 300px)}#sv svg{width:100%;height:100%}
+  #tb{position:absolute;left:20px;right:20px;top:150px;bottom:160px;display:none;font-size:clamp(13px,1.15vw,20px)}
+  #tb table{width:100%;border-collapse:collapse;background:var(--panel);border-radius:12px;overflow:hidden}
+  #tb td,#tb th{padding:9px 14px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}#tb th{color:var(--cyan);font-size:1.1em}
+  #tb td:first-child{color:var(--muted);width:22%}
+  #leg{right:20px;top:110px;width:270px;display:none;font-size:clamp(12px,1vw,16px)}#leg .r{display:flex;gap:8px;align-items:center;margin:4px 0}#leg i{width:14px;height:14px;border-radius:50%}
+</style>
+</head><body><div id="stage"></div>
+<div class="a-title">Scanarea 3D cu LiDAR din UAV<small>Impulsuri laser, ecouri multiple prin vegetație · scaner + GNSS + IMU · ce vede LiDAR-ul și ce nu vede fotogrametria</small></div>
+<div class="opts" style="flex-direction:row;top:100px;left:20px;right:auto"><button data-s="0" class="on">1 · Impulsul și ecourile</button><button data-s="1">2 · Scanarea din zbor</button><button data-s="2">3 · Sub vegetație</button><button data-s="3">4 · LiDAR vs fotogrametrie</button></div>
+<div id="sv"><svg id="svg" viewBox="0 0 1500 640"></svg></div>
+<div id="tb"></div>
+<div class="a-panel" id="leg"><h4>Culoare după ecou</h4><div class="r"><i style="background:#3fd06a"></i>primul ecou (coronament)</div><div class="r"><i style="background:#e8e05a"></i>ecouri intermediare</div><div class="r"><i style="background:#d9822b"></i>ultimul ecou (sol sub arbori)</div><div class="r"><i style="background:#8fa6c8"></i>ecou unic (teren liber, construcții)</div>
+  <div style="margin-top:8px;color:var(--muted)">Linia roșie: traiectoria calculată din GNSS + IMU.</div></div>
+<script>
+(function(){
+  const {seg, lerp, ease} = AnimUI, T = window.TEREN, svg = document.getElementById('svg');
+  // ================= act 1: impulsul și ecourile (secțiune + formă de undă)
+  function act1(f){
+    const GY = 560, DX = 360, DY = 70; let h = `<rect x="0" y="${GY}" width="760" height="80" fill="#3a2e1f"/><line x1="0" y1="${GY}" x2="760" y2="${GY}" stroke="#c9a46a" stroke-width="3"/>`;
+    // arbore
+    h += `<rect x="352" y="${GY - 200}" width="16" height="200" fill="#5a3d22"/><ellipse cx="360" cy="${GY - 260}" rx="120" ry="95" fill="#2f7a3e" opacity=".9"/><ellipse cx="320" cy="${GY - 200}" rx="60" ry="40" fill="#2a6b37"/>`;
+    h += `<g transform="translate(${DX},${DY})"><rect x="-40" y="-14" width="80" height="22" rx="6" fill="#e8ecf2"/><rect x="-14" y="8" width="28" height="18" fill="#2b3442"/><text x="60" y="6" fill="#fff" font-size="18">scaner LiDAR</text></g>`;
+    // impulsul: coborâre, apoi trei ecouri înapoi
+    const hits = [[GY - 345, 'primul ecou — vârful coronamentului', '#3fd06a'], [GY - 215, 'ecou intermediar — ramuri', '#e8e05a'], [GY, 'ultimul ecou — solul', '#d9822b']];
+    const kd = seg(f, 0.05, 0.35, x=>x), y = lerp(DY + 26, GY, kd);
+    h += `<line x1="${DX}" y1="${DY + 26}" x2="${DX}" y2="${y}" stroke="#ff3b3b" stroke-width="${6 + 10*kd}" opacity=".45"/>`;
+    hits.forEach(([hy, txt, c], i) => { if(y < hy - 1) return; const kr = seg(f, 0.35 + i*0.06, 0.6 + i*0.06, x=>x), ry = lerp(hy, DY + 26, kr);
+      const ty = i === 2 ? hy - 18 : hy;
+      h += `<circle cx="${DX}" cy="${hy}" r="9" fill="${c}"/><text x="${DX + 130}" y="${ty + 6}" fill="${c}" font-size="18" font-weight="700" paint-order="stroke" stroke="#050913" stroke-width="4">${txt}</text><line x1="${DX + 14}" y1="${hy}" x2="${DX + 124}" y2="${ty}" stroke="${c}" stroke-dasharray="4 4"/>`;
+      if(kr > 0 && kr < 1) h += `<circle cx="${DX - 22 - i*8}" cy="${ry}" r="6" fill="${c}"/>`; });
+    // forma de undă recepționată
+    const ox = 820, oy = 520, W = 620, Hh = 340; h += `<rect x="${ox - 20}" y="${oy - Hh - 30}" width="${W + 40}" height="${Hh + 80}" rx="12" fill="rgba(12,20,38,.92)" stroke="rgba(140,170,220,.35)"/>
+      <text x="${ox}" y="${oy - Hh}" fill="#ffd84a" font-size="18" font-weight="700">Semnalul întors (intensitate în timp)</text><line x1="${ox}" y1="${oy}" x2="${ox + W}" y2="${oy}" stroke="#b4c0d4"/><text x="${ox + W}" y="${oy + 26}" fill="#b4c0d4" font-size="15" text-anchor="end">timp →</text>`;
+    const kw = seg(f, 0.45, 0.9, x=>x), peaks = [[0.3, 0.75, '#3fd06a'], [0.48, 0.35, '#e8e05a'], [0.82, 0.9, '#d9822b']];
+    let d = `M${ox} ${oy}`; for(let i=0;i<=200*kw;i++){ const u = i/200; let v = 0.03*Math.sin(i*1.7); peaks.forEach(([p, a]) => v += a*Math.exp(-Math.pow((u - p)/0.022, 2))); d += ` L${ox + u*W} ${oy - v*Hh*0.8}`; }
+    h += `<path d="${d}" fill="none" stroke="#7fe7ff" stroke-width="2.5"/>`;
+    peaks.forEach(([p, a, c]) => { if(kw > p) h += `<circle cx="${ox + p*W}" cy="${oy - a*Hh*0.8}" r="7" fill="${c}"/>`; });
+    h += `<text x="${ox}" y="${oy + 56}" fill="#fff" font-size="18">d = c · t / 2 &nbsp;·&nbsp; 1 ns ≈ 15 cm de distanță</text>`;
+    return h;
+  }
+  // ================= act 3: secțiune sub vegetație — fotogrametrie vs LiDAR
+  const XS = 732, YA = 150, YB = 300; let sd = 4; const rnd = () => (sd = (sd*16807) % 2147483647)/2147483647;
+  const PH = [], LI = [];
+  for(let y = YA; y <= YB; y += 0.4){ PH.push({y, z:T.surface(XS, y)}); }
+  for(let y = YA; y <= YB; y += 0.25){ const s = T.surface(XS, y), g = T.ground(XS, y), tr = s - g > 1; LI.push({y, z:s, r:tr ? 1 : 0});
+    if(tr){ if(rnd() < 0.5) LI.push({y, z:g + (s - g)*(0.3 + rnd()*0.5), r:2}); if(rnd() < 0.55) LI.push({y, z:g + (rnd() - 0.5)*0.06, r:3}); } }
+  function act3(f){
+    const X = y => 60 + (y - YA)/(YB - YA)*1380, zmin = Math.min(...LI.map(p => p.z)) - 1, Y = z => 560 - (z - zmin)*9*1.6;
+    let h = `<line x1="60" y1="590" x2="1440" y2="590" stroke="#2f4566"/><text x="60" y="616" fill="#8a98b4" font-size="15">secțiune prin valea râului cu arbori (x = ${XS} m) · exagerare verticală ×1,6</text>`;
+    const mode = f < 0.45 ? 0 : 1, k = mode ? seg(f, 0.47, 0.75, x=>x) : seg(f, 0.03, 0.3, x=>x);
+    if(mode === 0){ PH.slice(0, Math.floor(PH.length*k)).forEach(p => h += `<circle cx="${X(p.y).toFixed(1)}" cy="${Y(p.z).toFixed(1)}" r="2.6" fill="#cfd8e6"/>`);
+      h += `<text x="60" y="60" fill="#fff" font-size="24"><tspan fill="#cfd8e6" font-weight="700">Fotogrametria</tspan>: doar ce se vede din aer — coroanele arborilor. Sub ele nu există puncte de sol.</text>`;
+      if(k >= 1){ const G = PH.filter(p => T.surface(XS, p.y) - T.ground(XS, p.y) < 0.5); h += `<path d="${G.map((p, i) => (i ? 'L' : 'M') + X(p.y) + ' ' + Y(p.z)).join(' ')}" fill="none" stroke="#ffd84a" stroke-width="3" stroke-dasharray="8 6"/><text x="60" y="94" fill="#ffd84a" font-size="20">DTM interpolat peste golurile de sub arbori — fundul văii lipsește</text>`; } }
+    else { LI.slice(0, Math.floor(LI.length*k)).forEach(p => h += `<circle cx="${X(p.y).toFixed(1)}" cy="${Y(p.z).toFixed(1)}" r="2.4" fill="${['#8fa6c8', '#3fd06a', '#e8e05a', '#d9822b'][p.r]}"/>`);
+      h += `<text x="60" y="60" fill="#fff" font-size="24"><tspan fill="#3fd06a" font-weight="700">LiDAR</tspan>: o parte din impulsuri trec printre frunze — <tspan fill="#d9822b" font-weight="700">ultimele ecouri</tspan> ating solul.</text>`;
+      if(k >= 1){ const G = LI.filter(p => p.r === 0 || p.r === 3).sort((a, b) => a.y - b.y); h += `<path d="${G.map((p, i) => (i ? 'L' : 'M') + X(p.y) + ' ' + Y(T.ground(XS, p.y))).join(' ')}" fill="none" stroke="#d9822b" stroke-width="3.5"/><text x="60" y="94" fill="#d9822b" font-size="20">DTM real, inclusiv sub coronament: malurile și albia râului</text>`; } }
+    return h;
+  }
+  // ================= act 2: scanarea 3D
+  const ren = new THREE.WebGLRenderer({antialias:true, alpha:true, preserveDrawingBuffer:true}); ren.setPixelRatio(Math.min(2, devicePixelRatio||1)); document.getElementById('stage').appendChild(ren.domElement);
+  const sc = new THREE.Scene(), cam = new THREE.PerspectiveCamera(40, 1, 1, 5000); DRONA.lights(sc);
+  const ctr = new THREE.OrbitControls(cam, ren.domElement); ctr.enableDamping = true; let manual = false; ren.domElement.addEventListener('pointerdown', () => manual = true);
+  function rs(){ ren.setSize(innerWidth, innerHeight); cam.aspect = innerWidth/innerHeight; cam.updateProjectionMatrix(); } addEventListener('resize', rs); rs();
+  const EX = 1.6, Z0 = 60, P3 = (x, y, z) => new THREE.Vector3(x - T.W/2, (z - Z0)*EX, -(y - T.H/2));
+  const LINES = [140, 220, 300], ZF = 130, NPL = 60000, NP = NPL*LINES.length, pp = new Float32Array(NP*3), pc = new Float32Array(NP*3);
+  const RC = [[0.56,0.65,0.78],[0.25,0.82,0.42],[0.91,0.88,0.35],[0.85,0.51,0.17]];
+  let k3 = 0; LINES.forEach(LY => { for(let i=0;i<NPL;i++){ const x = 20 + (i/NPL)*760, th = (rnd()*2 - 1)*0.62, y = LY + (ZF - 62)*Math.tan(th), s = T.surface(x, y), g = T.ground(x, y);
+      let z = s, r = 0; if(s - g > 1){ const u = rnd(); if(u < 0.5){ z = s; r = 1; } else if(u < 0.72){ z = g + (s - g)*(0.3 + rnd()*0.5); r = 2; } else { z = g; r = 3; } }
+      if(T.kind(x, y) === 'rau' || T.kind(x, y) === 'canal'){ if(rnd() < 0.85) { z = -999; } }
+      const q = P3(x, y, z); pp.set([q.x, q.y, q.z], 3*k3); pc.set(RC[r], 3*k3); k3++; } });
+  const pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.BufferAttribute(pp, 3)); pg.setAttribute('color', new THREE.BufferAttribute(pc, 3));
+  sc.add(new THREE.Points(pg, new THREE.PointsMaterial({size:1.8, sizeAttenuation:false, vertexColors:true})));
+  const dr = DRONA.multirotor(); dr.scale.setScalar(22); sc.add(dr);
+  const fan = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({color:0xff3b3b, transparent:true, opacity:0.18, side:THREE.DoubleSide, depthWrite:false})); sc.add(fan);
+  const traj = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({color:0xff4d5e})); sc.add(traj);
+  const trajPts = []; LINES.forEach((LY, i) => { const xs = i % 2 ? [780, 20] : [20, 780]; trajPts.push(P3(xs[0], LY, ZF), P3(xs[1], LY, ZF)); });
+  function act2(f){
+    const n = Math.floor(NP*seg(f, 0.03, 0.85, x=>x)), li = Math.min(LINES.length - 1, Math.floor(n/NPL)), fr = (n - li*NPL)/NPL;
+    // punctele se adaugă pe benzi: pe banda impară, ordinea e inversă — afișăm doar până la poziția dronei
+    pg.setDrawRange(0, n);
+    const xa = li % 2 ? lerp(780, 20, fr) : lerp(20, 780, fr), LY = LINES[li]; dr.position.copy(P3(xa, LY, ZF)); DRONA.spin(dr, 0.02, 60);
+    const g = T.ground(xa, LY), w = (ZF - 62)*Math.tan(0.62); fan.geometry.setFromPoints([P3(xa, LY, ZF), P3(xa, LY - w, g), P3(xa, LY + w, g)]); fan.visible = f < 0.86;
+    traj.geometry.setFromPoints(trajPts.slice(0, 2*li + 1).concat([dr.position.clone()]));
+    if(!manual){ const k = ease(seg(f, 0.82, 0.95)); cam.position.lerp(new THREE.Vector3(lerp(xa - T.W/2 - 260, -60, k), lerp(260, 420, k), lerp(330, 470, k)), 0.05); ctr.target.lerp(new THREE.Vector3(lerp(xa - T.W/2, 0, k), 0, lerp(-(LY - T.H/2), -20, k)), 0.05); cam.lookAt(ctr.target); }
+    ctr.update(); ren.render(sc, cam);
+  }
+  // pentru banda inversă, ordinea punctelor trebuie inversată
+  (function(){ for(let b=1;b<LINES.length;b+=2){ const a0 = b*NPL, a1 = a0 + NPL; for(let i=0;i<NPL/2;i++){ const p = a0 + i, q = a1 - 1 - i; for(let c=0;c<3;c++){ let t = pp[3*p+c]; pp[3*p+c] = pp[3*q+c]; pp[3*q+c] = t; t = pc[3*p+c]; pc[3*p+c] = pc[3*q+c]; pc[3*q+c] = t; } } } })();
+  // ================= act 4: tabel
+  document.getElementById('tb').innerHTML = `<table><tr><th></th><th>Fotogrametrie</th><th>LiDAR</th></tr>
+    <tr><td>Principiu</td><td>imagini suprapuse, triangulație</td><td>impulsuri laser, timpul de zbor</td></tr>
+    <tr><td>Sub vegetație</td><td>nu vede solul sub coronament des</td><td>ultimele ecouri ating solul — DTM real</td></tr>
+    <tr><td>Lumină</td><td>are nevoie de lumină bună, umbre scurte</td><td>independent de lumină (are senzor propriu)</td></tr>
+    <tr><td>Precizie tipică pe verticală</td><td>~2–3 × GSD (câțiva cm) pe teren liber</td><td>~3–5 cm, constant, inclusiv sub arbori</td></tr>
+    <tr><td>Culori / imagine</td><td>da — ortofotoplan, model texturat</td><td>doar intensitate; culorile vin de la o cameră suplimentară</td></tr>
+    <tr><td>Echipament</td><td>dronă + cameră, cost redus</td><td>scaner + GNSS + IMU pe dronă, cost mare</td></tr>
+    <tr><td>Potrivit pentru</td><td>teren liber, șantiere, ortofotoplanuri, volume</td><td>lunci și păduri, diguri cu vegetație, linii electrice, DTM de precizie</td></tr></table>`;
+  const T0 = [0, 10, 30, 42], DUR = [10, 20, 12, 8];
+  const clk = AnimUI.init({duration:50, loop:true, phases:[
+    {t:0, text:'Scanerul trimite un impuls laser; din <b>timpul de întoarcere</b> rezultă distanța. Prin frunziș, același impuls dă <b>mai multe ecouri</b>.'},
+    {t:10, text:'În zbor, scanerul „mătură" o fâșie sub dronă: sute de mii de impulsuri pe secundă. Poziția și orientarea dronei vin din <b>GNSS + IMU</b>.'},
+    {t:22, text:'Norul LiDAR, colorat după ecou: <b>verde</b> — coronamentul, <b>portocaliu</b> — solul de sub arbori. Pe apă laserul se întoarce slab (goluri).'},
+    {t:30, text:'Diferența esențială: sub vegetație, fotogrametria interpolează; <b>LiDAR-ul măsoară solul</b>.'},
+    {t:42, text:'Cele două tehnologii se completează — multe drone poartă azi și cameră, și LiDAR.'}]});
+  document.querySelectorAll('.opts button').forEach(b => b.onclick = () => clk.seek(T0[+b.dataset.s] + 0.01));
+  (function frame(){ const t = clk.update(), a = T0.reduce((acc, v, i) => t >= v ? i : acc, 0), f = (t - T0[a])/DUR[a];
+    document.querySelectorAll('.opts button').forEach(b => b.classList.toggle('on', +b.dataset.s === a));
+    const is3 = a === 1; ren.domElement.style.display = is3 ? 'block' : 'none'; document.getElementById('leg').style.display = is3 ? 'block' : 'none';
+    document.getElementById('sv').style.display = a === 0 || a === 2 ? 'block' : 'none'; document.getElementById('tb').style.display = a === 3 ? 'block' : 'none';
+    if(a === 0) svg.innerHTML = act1(f); else if(a === 2) svg.innerHTML = act3(f); else if(a === 1) act2(f);
+    requestAnimationFrame(frame); })();
+})();
+</script>
+</body></html>

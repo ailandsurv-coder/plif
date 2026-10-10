@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sistemele GNSS — date comparative</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/anim-ui.js"></script><script src="../lib/gnss.js"></script>
+<style>
+  #sv{position:absolute;left:0;top:92px;width:46%;height:calc(100vh - 250px)}
+  #cards{position:absolute;right:20px;top:100px;width:calc(54% - 40px);display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .cd{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-size:clamp(11px,.88vw,15px);line-height:1.38;opacity:0;transform:translateY(10px);transition:all .5s}
+  .cd.on{opacity:1;transform:none}
+  .cd h4{margin:0 0 4px;font-size:1.25em;display:flex;align-items:center;gap:8px}
+  .cd .big{font-size:2em;font-weight:800;font-variant-numeric:tabular-nums;line-height:1}
+  .cd .bar{height:6px;border-radius:3px;margin:5px 0}
+  .a-caption{display:none}
+  #tl{position:absolute;left:24px;right:24px;bottom:88px;height:96px}
+  #tl svg{width:100%;height:100%}
+</style>
+</head><body>
+<div class="a-title">Sistemele globale de poziționare — date comparative<small>Fiecare sistem are propria constelație, propriile orbite și semnale · situația din septembrie–octombrie 2026</small></div>
+<svg id="sv" viewBox="0 0 700 640"></svg>
+<div id="cards"></div>
+<div id="tl"><svg id="tls" viewBox="0 0 1500 96"></svg></div>
+<script>
+(function(){
+  const {seg, lerp, ease} = AnimUI, G0 = window.GNSS, sv = document.getElementById('sv');
+  // ---------- orbitele la scara (sfert de cerc)
+  const CX = 70, CY = 600, RE = 74, R = alt => RE*(6371 + alt)/6371;
+  const ORB = [
+    {k:'ISS', n:'Stația Spațială (LEO)', alt:400, col:'#9aa6b8', per:5554},
+    {k:'GLO', alt:19130, per:40544}, {k:'GPS', alt:20180, per:43082}, {k:'BDS', alt:21528, per:46393}, {k:'GAL', alt:23222, per:50680},
+    {k:'GEO', n:'GEO / IGSO (BeiDou, QZSS, NavIC)', alt:35786, col:'#c38bff', per:86164}];
+  function orbits(t){
+    let h = `<defs><radialGradient id="ea" cx="30%" cy="30%"><stop offset="0" stop-color="#5aa0ff"/><stop offset="1" stop-color="#0d3570"/></radialGradient></defs>`;
+    ORB.forEach((o, i) => { const S = G0.byKey(o.k), col = S ? S.col : o.col, r = R(o.alt), k = seg(t, 0.5 + i*0.6, 1.6 + i*0.6);
+      const a1 = -Math.PI/2*k; h += `<path d="M ${CX + r} ${CY} A ${r} ${r} 0 0 0 ${CX + r*Math.cos(a1)} ${CY + r*Math.sin(a1)}" fill="none" stroke="${col}" stroke-width="${o.k === 'ISS' ? 1.5 : 2.5}" opacity=".85"/>`;
+      if(k > 0.98){ // satelitul se misca proportional cu perioada reala
+        const a = -((t*2400/o.per) % 1)*Math.PI/2; h += `<circle cx="${CX + r*Math.cos(a)}" cy="${CY + r*Math.sin(a)}" r="7" fill="${col}"/>`;
+        const lab = S ? `${S.nume} · ${o.alt.toLocaleString('ro-RO')} km` : `${o.n} · ${o.alt.toLocaleString('ro-RO')} km`;
+        if(o.k === 'ISS' || o.k === 'GEO'){ const al = -(o.k === 'ISS' ? 60 : 45)*Math.PI/180;
+          const lines = o.k === 'GEO' ? [`GEO / IGSO · ${o.alt.toLocaleString('ro-RO')} km`, 'BeiDou, QZSS, NavIC'] : [lab];
+          lines.forEach((ln, j) => h += `<text x="${CX + r*Math.cos(al) + 10}" y="${CY + r*Math.sin(al) - 4 + j*18}" fill="${col}" font-size="15" font-weight="700" paint-order="stroke" stroke="#050913" stroke-width="4">${ln}</text>`); }
+        else { const al = -32*Math.PI/180, px = CX + r*Math.cos(al), py = CY + r*Math.sin(al), ly = 400 + (i-1)*30;
+          h += `<circle cx="${px}" cy="${py}" r="3" fill="${col}"/><polyline points="${px},${py} 470,${ly} 480,${ly}" fill="none" stroke="${col}" stroke-width="1.2"/><text x="486" y="${ly + 5}" fill="${col}" font-size="15" font-weight="700">${lab}</text>`; } } });
+    h += `<path d="M ${CX} ${CY - RE} A ${RE} ${RE} 0 0 1 ${CX + RE} ${CY} L ${CX} ${CY} Z" fill="url(#ea)"/><text x="${CX + 8}" y="${CY - 12}" fill="#fff" font-size="13">Pământ</text>
+      <text x="${CX}" y="24" fill="#b4c0d4" font-size="14">razele orbitelor la scară · sateliții se mișcă proporțional cu perioada reală</text>`;
+    return h;
+  }
+  // ---------- fise
+  const cards = document.getElementById('cards'), maxOp = 35;
+  G0.SYS.forEach(S => { const d = document.createElement('div'); d.className = 'cd'; d.style.borderColor = S.col + '66';
+    d.innerHTML = `<h4 style="color:${S.col}">${S.nume}<span style="color:var(--muted);font-size:.65em;font-weight:500">${S.tara}</span></h4>
+      <div style="display:flex;align-items:baseline;gap:8px"><span class="big" style="color:${S.col}">${S.op}</span><span>${S.k === 'QZS' ? 'sateliți pe orbită' : (S.k === 'GAL' ? 'sateliți utilizabili' : 'sateliți operaționali')}</span></div>
+      <div class="bar" style="background:${S.col};width:${100*S.op/maxOp}%"></div>
+      <div>${S.alt.toLocaleString('ro-RO')} km · ${S.inc}°${S.plane ? ' · ' + S.plane + ' plane' : ''} · ${S.per}</div><div>Semnale: ${S.semnale}</div><div style="color:var(--muted)">${S.nota}</div>`;
+    cards.appendChild(d); });
+  // ---------- cronologie
+  const EV = [[1978,'GPS: primul satelit','GPS',14,'m'],[1982,'GLONASS: primul satelit','GLO',88,'m'],[1995,'GPS și GLONASS: constelații complete','',14,'m'],
+    [2000,'BeiDou-1 (experimental)','BDS',88,'m'],[2010,'QZSS-1','QZS',70,'e'],[2011,'Galileo IOV · GLONASS refăcut','GAL',14,'e'],[2012,'BeiDou-2 regional','BDS',88,'m'],
+    [2013,'IRNSS-1A','IRN',30,'m'],[2016,'Galileo: servicii inițiale','GAL',70,'m'],[2018,'QZSS: 4 sateliți','QZS',14,'m'],[2020,'BeiDou-3 global','BDS',88,'m'],
+    [2026,'GPS III complet · QZS-7 · Galileo G2G','',30,'e']];
+  function timeline(t){
+    const x = y => 30 + (y - 1975)/(2028 - 1975)*1440, k = seg(t, 3, 14, x=>x);
+    let h = `<line x1="30" y1="48" x2="${30 + 1440*k}" y2="48" stroke="#3fd0ff" stroke-width="3"/>`;
+    EV.forEach(([y, txt, s, row, an], i) => { if(x(y) > 30 + 1440*k) return; const col = s ? G0.byKey(s).col : '#fff';
+      h += `<line x1="${x(y)}" y1="48" x2="${x(y)}" y2="${row < 48 ? row + 4 : row - 14}" stroke="${col}" stroke-width="1" opacity=".6"/><circle cx="${x(y)}" cy="48" r="6" fill="${col}"/>
+        <text x="${x(y)}" y="${row}" fill="${col}" font-size="13" text-anchor="${an === 'e' ? 'end' : 'middle'}">${y} · ${txt}</text>`; });
+    return h;
+  }
+  const clk = AnimUI.init({duration:22, loop:true, phases:[
+    {t:0, text:'Sistemele diferă prin <b>altitudinea orbitelor</b>: GLONASS cel mai jos, Galileo cel mai sus dintre cele globale; QZSS și NavIC folosesc orbite geosincrone.'},
+    {t:6, text:'<b>GPS</b> (SUA) — 32 operaționali · <b>GLONASS</b> (Rusia) — 24 · <b>Galileo</b> (UE) — 28 utilizabili · <b>BeiDou</b> (China) — 35 BeiDou-3.'},
+    {t:13, text:'Sistemele regionale completează acoperirea: <b>QZSS</b> (Japonia, 6 sateliți) și <b>NavIC</b> (India, 3 funcționali).'}]});
+  let lt = -1;
+  (function frame(){ const t = clk.update();
+    if(Math.abs(t - lt) > 0.02){ lt = t; sv.innerHTML = orbits(t); document.getElementById('tls').innerHTML = timeline(t);
+      [...cards.children].forEach((c,i) => c.classList.toggle('on', t > 5 + i*1.2)); }
+    requestAnimationFrame(frame); })();
+})();
+</script>
+</body></html>

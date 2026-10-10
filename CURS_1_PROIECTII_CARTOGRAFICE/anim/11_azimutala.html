@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Proiecția azimutală (plană)</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/three.min.js"></script><script src="../lib/OrbitControls.js"></script><script src="../lib/topojson-client.min.js"></script>
+<script src="../lib/world-data.js"></script><script src="../lib/earth-tex.js"></script>
+<script src="../lib/anim-ui.js"></script><script src="../lib/globe.js"></script><script src="../lib/lumina.js"></script>
+</head><body><div id="stage"></div>
+<div class="a-title">Proiecția azimutală (plană)<small>Planul tangent la pol — poziția sursei de lumină dă trei proiecții diferite</small></div>
+<div class="opts">
+  <button data-m="0" class="on">Gnomonică — sursa în centru</button>
+  <button data-m="1">Stereografică — sursa la antipod</button>
+  <button data-m="2">Ortografică — sursa la infinit</button>
+</div>
+<div class="a-panel" id="pan" style="left:28px;top:120px;width:350px"></div>
+<div class="a-panel" style="right:20px;bottom:96px;padding:8px">
+  <svg id="sch" width="310" height="285" viewBox="-125 -105 250 230"></svg>
+  <div style="text-align:center;color:var(--muted);font-size:13px">secțiune prin glob și plan</div>
+</div>
+<div class="hint" style="top:150px;bottom:auto">Trage cu mouse-ul pentru a roti scena</div>
+<script>
+(function(){
+  const {seg, lerp, ease} = AnimUI;
+  const kit = GlobeKit.create(document.getElementById('stage'), {camZ:5});
+  const G = GlobeKit.morphGlobe(kit, {graticule:30, step:3, viewLon:0});
+  G.meshes.forEach(m => { m.material.opacity = 0.6; m.material.depthWrite = false; });
+  const I3 = new THREE.Matrix3(), tex = GlobeKit.earthTexture();
+  const plane = Lumina.makeSheet({type:'plane', y:1, rmax:2.4}, tex, I3); plane.renderOrder = 2; kit.root.add(plane);
+  const bulb = Lumina.bulb(kit.root), R = Lumina.rays(kit.root, 80);
+  // pentru sursa la infinit: sageti paralele de jos
+  const sun = new THREE.Group(); kit.root.add(sun);
+  for(let i=-2;i<=2;i++) for(let j=-2;j<=2;j++){ if(Math.hypot(i,j) > 2.3) continue;
+    const a = new THREE.ArrowHelper(new THREE.Vector3(0,1,0), new THREE.Vector3(i*0.35,-3.2,j*0.35), 0.8, 0xffd860, 0.18, 0.1); sun.add(a); }
+
+  const M = [
+    {name:'gnomonică', L:new THREE.Vector3(0,0,0), latMin:28,
+     pan:'<h4>Gnomonică (centrală)</h4>Sursa: <b>centrul globului</b><br>ρ = R · tg c &nbsp;<span style="color:var(--muted)">(c = distanța unghiulară față de pol)</span><br><br><b>Orice cerc mare devine linie dreaptă</b> → drumul cel mai scurt (ortodroma) apare drept: hărți pentru navigație aeriană/maritimă.<br><span style="color:var(--muted)">Nu poate reprezenta o emisferă întreagă; deformări mari spre margini.</span>'},
+    {name:'stereografică', L:new THREE.Vector3(0,-1,0), latMin:-8,
+     pan:'<h4>Stereografică</h4>Sursa: <b>punctul diametral opus</b> (antipodul) punctului de tangență<br>ρ = 2R · tg (c/2)<br><br><b>Conformă</b>: păstrează unghiurile; cercurile de pe glob rămân cercuri.<br><span style="color:var(--muted)">Varianta <b>oblică, cu plan secant</b>, centrată la 46° N, 25° E, este <b>Stereo 70</b> — proiecția oficială a României.</span>'},
+    {name:'ortografică', L:new THREE.Vector3(0,-40,0), latMin:2,
+     pan:'<h4>Ortografică</h4>Sursa: <b>la infinit</b> (raze paralele)<br>ρ = R · sin c<br><br>Arată globul „văzut din spațiu"; reprezintă cel mult <b>o emisferă</b>.<br><span style="color:var(--muted)">Nici conformă, nici echivalentă — folosită pentru ilustrații și vederi de ansamblu.</span>'}];
+
+  // puncte pentru raze (coasta emisferei nordice)
+  const pts = []; GlobeKit.landRings().forEach(r => r.forEach((p,i) => { if(i % 7 === 0) pts.push(p); }));
+  const rayList = M.map(m => { const o = []; const st = Math.max(1, Math.floor(pts.length/300)); for(let i=0;i<pts.length && o.length<80;i+=st) if(pts[i][1] > m.latMin) o.push(pts[i]); return o; });
+
+  const D = 14, phases = [];
+  M.forEach((m,i) => {
+    phases.push({t:i*D,   text:`Sursa de lumină se mută în poziția pentru proiecția <b>${m.name}</b>.`});
+    phases.push({t:i*D+2, text:i===0 ? 'Razele pornesc din <b>centrul globului</b>: fiecare punct de pe sferă ajunge pe planul tangent la Polul Nord.'
+                              : i===1 ? 'Razele pornesc din <b>Polul Sud</b> și trec prin glob: ecuatorul ajunge la distanța 2R de pol, iar imaginea rămâne conformă.'
+                              : 'Raze <b>paralele</b>, perpendiculare pe plan: se vede doar emisfera nordică, comprimată spre margini.'});
+    phases.push({t:i*D+8, text:'Privind planul de sus: <b>meridianele</b> devin drepte care pleacă din pol, <b>paralelele</b> — cercuri concentrice. Doar distanțele dintre paralele diferă.'});
+  });
+  const clk = AnimUI.init({duration:3*D, loop:true, phases, onSeek:()=>{ manual = false; controls.enabled = false; }});
+  document.querySelectorAll('.opts button').forEach(b => b.onclick = () => clk.seek(+b.dataset.m*D + 0.01));
+
+  const controls = new THREE.OrbitControls(kit.camera, kit.renderer.domElement); controls.enabled = false; let manual = false;
+  const look = new THREE.Vector3();
+  kit.renderer.domElement.addEventListener('pointerdown', () => { if(!manual){ manual = true; controls.enabled = true; controls.target.copy(look); } });
+
+  // schema 2D (sectiune)
+  const svg = document.getElementById('sch'), S = 40;
+  function schema(mi, k){
+    const L = mi === 0 ? [0,0] : mi === 1 ? [0,S] : null;
+    let h = `<line x1="-120" y1="${-S}" x2="120" y2="${-S}" stroke="#ffc940" stroke-width="3"/>
+      <circle cx="0" cy="0" r="${S}" fill="rgba(80,140,255,.15)" stroke="#9fc6ff" stroke-width="1.5"/>
+      <text x="96" y="${-S-6}" fill="#ffc940" font-size="12">plan</text><text x="4" y="${-S-6}" fill="#fff" font-size="11">P.N.</text>`;
+    const lats = [60, 30, 0, -30].filter(f => mi === 0 ? f > 25 : mi === 1 ? f > -60 : f >= 0);
+    lats.forEach(f => [-1,1].forEach(sd => {
+      const c = (90 - f)*Math.PI/180, gx = sd*S*Math.sin(c), gy = -S*Math.cos(c);
+      let rho = mi === 0 ? S*Math.tan(c) : mi === 1 ? 2*S*Math.tan(c/2) : S*Math.sin(c);
+      const px = sd*rho, py = -S, fr = Math.min(1, k);
+      const sx = L ? L[0] : gx, sy = L ? L[1] : 100;
+      if(Math.abs(px) > 125) return;
+      h += `<line x1="${sx}" y1="${sy}" x2="${sx + (px - sx)*fr}" y2="${sy + (py - sy)*fr}" stroke="#ffd860" stroke-width="1.2" opacity=".85"/>
+            <circle cx="${gx}" cy="${gy}" r="3" fill="#ff6262"/>`;
+      if(fr >= 1) h += `<circle cx="${px}" cy="${py}" r="3.5" fill="#5be39a"/>`;
+    }));
+    if(L) h += `<circle cx="${L[0]}" cy="${L[1]}" r="6" fill="#fff2b0" stroke="#ffb020" stroke-width="2"/>`;
+    else h += `<text x="0" y="118" fill="#ffd860" font-size="12" text-anchor="middle">↑ raze paralele ↑</text>`;
+    svg.innerHTML = h;
+  }
+
+  let lastM = -1, lastK = -1;
+  function frame(){
+    const t = clk.update(), mi = Math.min(2, Math.floor(t / D)), tt = t - mi*D, m = M[mi];
+    if(mi !== lastM){ lastM = mi; document.getElementById('pan').innerHTML = m.pan; plane.material.uniforms.mode.value = mi;
+      document.querySelectorAll('.opts button').forEach(b => b.classList.toggle('on', +b.dataset.m === mi)); }
+    // pozitia sursei: tranzitie din pozitia precedenta
+    const prev = M[(mi + 2) % 3].L, mv = seg(tt, 0, 1.8);
+    const Lp = mi === 0 && t < 1.8 ? m.L.clone() : prev.clone().lerp(m.L, mv);
+    bulb.position.copy(mi === 2 ? new THREE.Vector3(0, lerp(-1, -4, mv), 0) : Lp);
+    bulb.visible = mi !== 2 || mv < 0.6; bulb.setOn(1);
+    sun.visible = mi === 2; sun.children.forEach(a => { a.line.material.transparent = true; a.line.material.opacity = mv; a.cone.material.transparent = true; a.cone.material.opacity = mv; });
+    plane.material.uniforms.lightPos.value.copy(m.L);
+    const rev = seg(tt, 2, 7.5, x=>x);
+    plane.material.uniforms.reveal.value = rev > 0 ? rev*1.03 : -1;
+    // raze
+    const pos = R.geometry.attributes.position, list = rayList[mi], n = Math.floor(list.length*Math.min(1, rev*1.2));
+    for(let i=0;i<80;i++){
+      let ok = false;
+      if(i < n){ const p = list[i], g = Lumina.geoToFrame(p[0], p[1], I3), h = Lumina.hitSheet(plane.userData.sh, mi, m.L, g);
+        if(h){ const s0 = mi === 2 ? new THREE.Vector3(g.x, -1.6, g.z) : m.L;
+          pos.setXYZ(4*i, s0.x,s0.y,s0.z); pos.setXYZ(4*i+1, g.x,g.y,g.z); pos.setXYZ(4*i+2, g.x,g.y,g.z); pos.setXYZ(4*i+3, h.x,h.y,h.z); ok = true; } }
+      if(!ok) for(let k=0;k<4;k++) pos.setXYZ(4*i+k, 0,0,0);
+    }
+    pos.needsUpdate = true; R.material.opacity = 0.8*(1 - seg(tt, 7.5, 8.5));
+    const k = Math.round(seg(tt, 2, 7.5, x=>x)*20)/20;
+    if(k !== lastK || mi !== lastM){ lastK = k; schema(mi, k); }
+
+    const top = seg(tt, 8, 10.5) * (1 - seg(tt, 13.2, 14));
+    G.group.visible = top < 0.97;
+    if(!manual){
+      const p0 = new THREE.Vector3(4.6, 1.6, 4.4), p1 = new THREE.Vector3(0, 12.5, 0.351);
+      kit.camera.position.copy(p0.lerp(p1, top));
+      kit.camera.up.copy(new THREE.Vector3(0,1,0).lerp(new THREE.Vector3(0,0,-1), top).normalize());
+      look.set(0, lerp(0.3, 1, top), lerp(0, 0.35, top)); kit.camera.lookAt(look);
+    } else controls.update();
+    kit.render(); requestAnimationFrame(frame);
+  }
+  frame();
+})();
+</script>
+</body></html>

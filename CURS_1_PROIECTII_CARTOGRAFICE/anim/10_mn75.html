@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sistemul altimetric Marea Neagră 1975</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/world-data.js"></script><script src="../lib/anim-ui.js"></script>
+<style>#sv{position:absolute;left:16px;right:16px;top:92px;height:calc(100vh - 242px)}#sv svg{width:100%;height:100%}</style>
+</head><body>
+<div class="a-title">Sistemul altimetric Marea Neagră 1975<small>De la nivelul mediu al mării, măsurat la maregraful din Constanța, la altitudinile din toată țara</small></div>
+<div class="opts"><button data-s="0" class="on">1 · Maregraful</button><button data-s="1">2 · Nivelmentul</button><button data-s="2">3 · Rețeaua națională</button></div>
+<div id="sv"><svg id="svg" viewBox="0 0 1500 700"></svg></div>
+<script>
+(function(){
+  const {seg, ease, lerp} = AnimUI, svg = document.getElementById('svg');
+  const sea = (x, t) => 14*Math.sin(t*0.9) + 6*Math.sin(x/40 + t*3.1) + 3*Math.sin(x/17 - t*4.3);   // maree + valuri (px)
+  const rec = (tt) => 14*Math.sin(tt*0.9) + 5*Math.sin(tt*2.3) + 3*Math.sin(tt*5.7);                // inregistrarea maregrafului
+
+  // ---- actul 1: maregraful
+  function act1(t, a){
+    const y0 = 400; let h = `<g opacity="${a}">`;
+    // mare
+    let d = 'M0 700 L0 ' + (y0 + sea(0, t)).toFixed(1);
+    for(let x=0; x<=700; x+=10) d += ' L' + x + ' ' + (y0 + sea(x, t)).toFixed(1);
+    h += `<path d="${d} L700 700Z" fill="rgba(40,120,240,.55)" stroke="#7fb8ff" stroke-width="2"/>`;
+    // dig + put de linistire + flotor
+    h += `<rect x="700" y="250" width="160" height="450" fill="#3a4258"/><rect x="560" y="250" width="40" height="450" fill="#2b3245" stroke="#8a93ad"/>
+      <rect x="565" y="${y0 + rec(t)*0.6}" width="30" height="${700 - y0 - rec(t)*0.6}" fill="rgba(40,120,240,.75)"/>
+      <rect x="568" y="${y0 + rec(t)*0.6 - 14}" width="24" height="14" rx="3" fill="#ffc940"/>
+      <line x1="580" y1="${y0 + rec(t)*0.6 - 14}" x2="580" y2="190" stroke="#ddd" stroke-width="2"/>
+      <rect x="540" y="150" width="200" height="60" rx="8" fill="#16233f" stroke="#3fd0ff"/>
+      <text x="640" y="186" fill="#fff" font-size="20" text-anchor="middle">MAREGRAF</text>
+      <text x="580" y="680" fill="#b4c0d4" font-size="16" text-anchor="middle">put de liniștire</text>`;
+    // inregistrarea
+    const gx = 900, gw = 560, gy = 300;
+    h += `<rect x="${gx}" y="150" width="${gw}" height="320" rx="10" fill="rgba(12,20,38,.9)" stroke="rgba(140,170,220,.35)"/>
+      <text x="${gx+16}" y="180" fill="#3fd0ff" font-size="20" font-weight="700">Înregistrarea nivelului mării</text>`;
+    let r = ''; const N = 140;
+    for(let i=0;i<=N;i++){ const tt = t - (N - i)*0.06; r += (i?'L':'M') + (gx + 20 + i*(gw-40)/N).toFixed(1) + ' ' + (gy + rec(tt)*3.2).toFixed(1); }
+    h += `<path d="${r}" fill="none" stroke="#7fb8ff" stroke-width="2.5"/>`;
+    const km = seg(t, 7, 9);
+    if(km > 0){
+      h += `<line x1="${gx+20}" y1="${gy}" x2="${gx + 20 + (gw-40)*km}" y2="${gy}" stroke="#ffc940" stroke-width="3" stroke-dasharray="10 6"/>
+        <text x="${gx+gw-20}" y="${gy-12}" fill="#ffc940" font-size="19" text-anchor="end" opacity="${km}">nivelul mediu</text>`;
+      h += `<line x1="0" y1="${y0}" x2="560" y2="${y0}" stroke="#ffc940" stroke-width="3" stroke-dasharray="10 6" opacity="${km}"/>
+        <line x1="600" y1="${y0}" x2="860" y2="${y0}" stroke="#ffc940" stroke-width="3" opacity="${km}"/>
+        <polygon points="860,${y0} 845,${y0-10} 845,${y0+10}" fill="#ffc940" opacity="${km}"/>
+        <text x="20" y="${y0-14}" fill="#ffc940" font-size="22" font-weight="700" opacity="${km}">0,000 m — zero fundamental</text>`;
+    }
+    h += `<text x="${gx+16}" y="430" fill="#b4c0d4" font-size="16">mareea și valurile se mediază pe o perioadă lungă de observații</text></g>`;
+    return h;
+  }
+  // ---- actul 2: nivelment geometric de la reperul fundamental spre interior
+  const R = [['RF Constanța', 0, 4.217], ['R1', 200, 21.903], ['R2', 400, 47.556], ['R3', 600, 63.120], ['R4', 800, 88.471], ['R5', 1000, 112.835]];
+  function act2(t, a){
+    const base = 560, s = 2.6, X = x => 160 + x*1.15, Y = H => base - H*s;
+    let h = `<g opacity="${a}">`;
+    // teren
+    let d = 'M100 700 L100 ' + Y(2);
+    for(let x=0; x<=1100; x+=10){ const H = 4 + x*0.105 + 6*Math.sin(x/70) + 3*Math.sin(x/23); d += ' L' + X(x).toFixed(1) + ' ' + Y(H).toFixed(1); }
+    h += `<path d="${d} L1440 700Z" fill="rgba(120,90,50,.45)" stroke="#c9a46a" stroke-width="3"/>`;
+    h += `<path d="M20 ${Y(0)+8} Q 60 ${Y(0)-4} 100 ${Y(0)+8}" stroke="#7fb8ff" stroke-width="3" fill="none"/>`;
+    h += `<line x1="20" y1="${Y(0)}" x2="1440" y2="${Y(0)}" stroke="#ffc940" stroke-width="2" stroke-dasharray="10 6"/><text x="1440" y="${Y(0)-10}" fill="#ffc940" font-size="18" text-anchor="end">suprafața de nivel zero (MN75)</text>`;
+    const prog = seg(t, 0, 9, x=>x)*(R.length - 1);
+    R.forEach((r,i) => {
+      const H = r[2], x = X(r[1]), shown = i <= prog + 0.001;
+      h += `<rect x="${x-7}" y="${Y(H)-7}" width="14" height="14" fill="${shown ? '#5be39a' : '#55607a'}" transform="rotate(45 ${x} ${Y(H)})"/>`;
+      h += `<text x="${x}" y="${Y(H)-22}" fill="${shown ? '#fff' : '#7d8aa5'}" font-size="18" text-anchor="middle">${r[0]}</text>`;
+      if(shown) h += `<text x="${x}" y="${Y(H)+38}" fill="#5be39a" font-size="18" font-weight="700" text-anchor="middle">H = ${H.toFixed(3).replace('.',',')} m</text>`;
+    });
+    // nivela intre reperi
+    const i = Math.min(R.length - 2, Math.floor(prog)), f = prog - i;
+    if(prog < R.length - 1){
+      const a1 = R[i], b1 = R[i+1], xa = X(a1[1]), xb = X(b1[1]), xm = (xa + xb)/2, Ha = a1[2], Hb = b1[2];
+      const hi = Math.max(Ha, Hb) + 12;                                    // inaltimea axei de vizare
+      h += `<line x1="${xa}" y1="${Y(Ha)}" x2="${xa}" y2="${Y(Ha + 30)}" stroke="#fff" stroke-width="6"/><line x1="${xb}" y1="${Y(Hb)}" x2="${xb}" y2="${Y(Hb + 30)}" stroke="#fff" stroke-width="6"/>
+        <line x1="${xm}" y1="${Y(hi)+6}" x2="${xm-16}" y2="${Y((Ha+Hb)/2)}" stroke="#b4c0d4" stroke-width="2.5"/><line x1="${xm}" y1="${Y(hi)+6}" x2="${xm+16}" y2="${Y((Ha+Hb)/2)}" stroke="#b4c0d4" stroke-width="2.5"/><line x1="${xm}" y1="${Y(hi)+6}" x2="${xm}" y2="${Y((Ha+Hb)/2)}" stroke="#b4c0d4" stroke-width="2"/>
+        <rect x="${xm-18}" y="${Y(hi)-10}" width="36" height="16" rx="3" fill="#ffc940"/>`;
+      const kv = Math.min(1, f*2.2);
+      h += `<line x1="${xm}" y1="${Y(hi)}" x2="${xm - (xm - xa)*kv}" y2="${Y(hi)}" stroke="#ff9d3c" stroke-width="2.5"/>`;
+      if(f > 0.45) h += `<line x1="${xm}" y1="${Y(hi)}" x2="${xm + (xb - xm)*Math.min(1, (f - 0.45)*2.2)}" y2="${Y(hi)}" stroke="#ff9d3c" stroke-width="2.5"/>`;
+      h += `<text x="${xa-8}" y="${Y(hi)-8}" fill="#ff9d3c" font-size="17" text-anchor="end">a = ${(hi - Ha).toFixed(3).replace('.',',')}</text>`;
+      if(f > 0.9) h += `<text x="${xb+8}" y="${Y(hi)-8}" fill="#ff9d3c" font-size="17">b = ${(hi - Hb).toFixed(3).replace('.',',')}</text>`;
+    }
+    h += `<g transform="translate(1040,110)"><rect width="430" height="110" rx="12" fill="rgba(12,20,38,.92)" stroke="rgba(140,170,220,.35)"/>
+      <text x="20" y="44" fill="#fff" font-size="26" font-weight="700">Δh = a − b</text><text x="210" y="44" fill="#fff" font-size="26" font-weight="700">H<tspan font-size="16" dy="6">B</tspan><tspan dy="-6"> = H</tspan><tspan font-size="16" dy="6">A</tspan><tspan dy="-6"> + Δh</tspan></text>
+      <text x="20" y="84" fill="#b4c0d4" font-size="16">a — citire înapoi, b — citire înainte (miră verticală)</text></g>`;
+    return h + '</g>';
+  }
+  // ---- actul 3: reteaua nationala (schematic)
+  const ring = (ROMANIA.type === 'Polygon' ? [ROMANIA.coordinates] : ROMANIA.coordinates).map(p => p[0]).sort((a,b)=>b.length-a.length)[0];
+  const P = l => [750 + (l[0] - 25)*0.7*95, 360 - (l[1] - 45.95)*95];
+  const NODES = {CT:[28.65,44.17],BU:[26.10,44.43],CR:[23.80,44.33],TS:[21.21,45.75],OR:[21.92,47.05],CJ:[23.62,46.77],BV:[25.59,45.64],IS:[27.60,47.16],GL:[28.01,45.44],SV:[26.25,47.65],DT:[22.66,44.63],SB:[24.13,45.80],BM:[23.58,47.66],TL:[28.79,45.17],MS:[24.56,46.54],BC:[26.91,46.57]};
+  const EDGES = [['CT','BU'],['CT','GL'],['CT','TL'],['TL','GL'],['GL','BU'],['BU','BV'],['BU','CR'],['CR','DT'],['DT','TS'],['CR','SB'],['SB','BV'],['GL','BC'],['BC','IS'],['IS','SV'],['SV','BM'],['BC','BV'],['SB','MS'],['MS','CJ'],['CJ','OR'],['OR','TS'],['TS','SB'],['CJ','BM'],['MS','BC'],['BM','OR']];
+  // ordine de propagare: distanta in graf de la Constanta
+  const dist = {CT:0}, q = ['CT']; while(q.length){ const u = q.shift(); EDGES.forEach(([a,b]) => { [[a,b],[b,a]].forEach(([x,y]) => { if(x === u && dist[y] == null){ dist[y] = dist[u] + 1; q.push(y); } }); }); }
+  function act3(t, a){
+    let h = `<g opacity="${a}"><path d="${ring.map((p,i) => (i?'L':'M') + P(p).map(v=>v.toFixed(1)).join(' ')).join(' ')}Z" fill="rgba(255,201,64,.08)" stroke="#ffc940" stroke-width="2"/>`;
+    const k = seg(t, 0.5, 8, x=>x)*6;
+    EDGES.forEach(([u,v]) => { const du = dist[u], dv = dist[v], a0 = Math.min(du, dv), f = Math.max(0, Math.min(1, k - a0));
+      if(f <= 0) return; const [s, e] = du <= dv ? [u, v] : [v, u], p1 = P(NODES[s]), p2 = P(NODES[e]);
+      h += `<line x1="${p1[0]}" y1="${p1[1]}" x2="${p1[0] + (p2[0]-p1[0])*f}" y2="${p1[1] + (p2[1]-p1[1])*f}" stroke="#5be39a" stroke-width="3"/>`; });
+    Object.entries(NODES).forEach(([n, l]) => { const p = P(l), on = k >= dist[n];
+      h += `<circle cx="${p[0]}" cy="${p[1]}" r="${n === 'CT' ? 10 : 6}" fill="${on ? (n === 'CT' ? '#ffc940' : '#5be39a') : '#55607a'}"/>`; });
+    const pc = P(NODES.CT);
+    h += `<text x="${pc[0]+14}" y="${pc[1]+30}" fill="#ffc940" font-size="20" font-weight="700">Constanța — zero fundamental</text>`;
+    h += `<g transform="translate(40,30)" opacity="${seg(t, 7, 9)}"><rect width="560" height="120" rx="12" fill="rgba(12,20,38,.92)" stroke="rgba(140,170,220,.35)"/>
+      <text x="20" y="40" fill="#5be39a" font-size="20" font-weight="700">Rețeaua de nivelment de stat (schematic)</text>
+      <text x="20" y="72" fill="#e8eef8" font-size="17">poligoane închise de nivelment geometric de precizie;</text>
+      <text x="20" y="98" fill="#e8eef8" font-size="17">compensarea din 1975 a dat sistemul de altitudini normale MN75</text></g>`;
+    return h + '</g>';
+  }
+  const D1 = 11, D2 = 12, D3 = 11;
+  const clk = AnimUI.init({duration:D1 + D2 + D3, loop:true, phases:[
+    {t:0, text:'La <b>maregraful din Constanța</b> nivelul mării este înregistrat continuu; mareea și valurile îl fac să varieze permanent.'},
+    {t:7, text:'Media pe o perioadă lungă de observații dă <b>nivelul mediu al mării</b>, materializat printr-un reper: <b>zero fundamental</b>.'},
+    {t:D1, text:'Prin <b>nivelment geometric</b>, din aproape în aproape, se transmite altitudinea de la reperul fundamental la reperii din interior.'},
+    {t:D1 + 6, text:'La fiecare stație: <b>Δh = a − b</b>; altitudinea fiecărui reper se obține adunând diferențele de nivel.'},
+    {t:D1 + D2, text:'Rețeaua de nivelment de stat acoperă țara; compensarea ei din 1975 a definit sistemul <b>Marea Neagră 1975</b> (altitudini normale).'},
+    {t:D1 + D2 + 7, text:'Orice altitudine din planurile topografice din România se raportează la acest sistem. Din GNSS: <b>H = h − ζ</b> (RomGEO).'}],
+    onSeek:()=>{}});
+  document.querySelectorAll('.opts button').forEach(b => b.onclick = () => clk.seek([0, D1, D1 + D2][+b.dataset.s] + 0.01));
+  (function frame(){
+    const t = clk.update();
+    const a1 = 1 - seg(t, D1 - 0.6, D1), a2 = seg(t, D1 - 0.4, D1 + 0.4)*(1 - seg(t, D1 + D2 - 0.6, D1 + D2)), a3 = seg(t, D1 + D2 - 0.4, D1 + D2 + 0.4);
+    let h = '';
+    if(a1 > 0) h += act1(t, a1);
+    if(a2 > 0) h += act2(t - D1, a2);
+    if(a3 > 0) h += act3(t - D1 - D2, a3);
+    svg.innerHTML = h;
+    const act = t < D1 ? 0 : t < D1 + D2 ? 1 : 2;
+    document.querySelectorAll('.opts button').forEach(b => b.classList.toggle('on', +b.dataset.s === act));
+    requestAnimationFrame(frame);
+  })();
+})();
+</script>
+</body></html>

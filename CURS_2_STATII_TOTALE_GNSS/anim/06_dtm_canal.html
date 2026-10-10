@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>De la măsurători la proiectul canalului</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/d3.min.js"></script><script src="../lib/anim-ui.js"></script>
+<style>#sv{position:absolute;left:12px;right:12px;top:92px;height:calc(100vh - 250px)}#sv svg{width:100%;height:100%}</style>
+</head><body>
+<div class="a-title">Stația totală în îmbunătățirile funciare<small>Puncte măsurate → model digital al terenului (DTM) → curbe de nivel → traseul canalului → profile → volume de săpătură</small></div>
+<div class="opts"><button data-s="0" class="on">1 · Ridicarea</button><button data-s="1">2 · DTM</button><button data-s="2">3 · Curbe de nivel</button><button data-s="3">4 · Profil longitudinal</button><button data-s="4">5 · Secțiuni și volume</button></div>
+<div id="sv"><svg id="svg" viewBox="0 0 1000 680"></svg></div>
+<script>
+(function(){
+  const {seg, lerp, ease} = AnimUI, svg = document.getElementById('svg');
+  // teren analitic (m): 400 x 300 m
+  const Z = (x, y) => 53 + 0.0035*x - 0.002*y + 0.9*Math.sin(x/55)*Math.cos(y/42) + 1.4*Math.exp(-((x-260)**2 + (y-170)**2)/2600) - 0.8*Math.exp(-((x-120)**2 + (y-80)**2)/1800);
+  const W = 400, H = 300, sc = 1.58, PX = 16, PY = 60, mx = x => PX + x*sc, my = y => PY + (H - y)*sc;
+  // punctele masurate (pseudo-aleator determinist) + statia
+  let seed = 7; const rnd = () => (seed = (seed*16807) % 2147483647)/2147483647;
+  const ST = {x:190, y:140};
+  const pts = []; for(let i=0;i<150;i++){ const x = 8 + rnd()*384, y = 8 + rnd()*284; pts.push({x, y, z:Z(x, y)}); }
+  [[0,0],[W,0],[W,H],[0,H]].forEach(([x,y]) => pts.push({x, y, z:Z(x,y)}));
+  pts.sort((a,b) => Math.atan2(a.y-ST.y, a.x-ST.x) - Math.atan2(b.y-ST.y, b.x-ST.x));
+  const del = d3.Delaunay.from(pts, p => p.x, p => p.y), tri = del.triangles, NT = tri.length/3;
+  const zmin = d3.min(pts, p => p.z), zmax = d3.max(pts, p => p.z);
+  const col = d3.scaleSequential(d3.interpolateRgbBasis(['#2f6b3a','#7da43c','#d9c45a','#c98a3c','#9b5a2e'])).domain([zmin, zmax]);
+  // curbe de nivel pe grila
+  const G = 2, nx = W/G + 1, ny = H/G + 1, grid = new Float64Array(nx*ny);
+  for(let j=0;j<ny;j++) for(let i=0;i<nx;i++) grid[j*nx+i] = Z(i*G, H - j*G);
+  const th = d3.range(Math.ceil(zmin*2)/2, zmax, 0.5);
+  const cont = d3.contours().size([nx, ny]).thresholds(th)(Array.from(grid));
+  const cpath = d3.geoPath(d3.geoTransform({point(x, y){ this.stream.point(PX + x*G*sc, PY + y*G*sc); }}));
+  // axa canalului si profilul
+  const AX = [[25,40],[150,95],[280,150],[380,265]];
+  const seglen = []; let L = 0; for(let i=1;i<AX.length;i++){ const d = Math.hypot(AX[i][0]-AX[i-1][0], AX[i][1]-AX[i-1][1]); seglen.push(d); L += d; }
+  const at = s => { for(let i=0;i<seglen.length;i++){ if(s <= seglen[i] || i === seglen.length-1){ const k = Math.min(1, s/seglen[i]); return [lerp(AX[i][0], AX[i+1][0], k), lerp(AX[i][1], AX[i+1][1], k)]; } s -= seglen[i]; } };
+  const STEP = 10, prof = []; for(let s=0;s<=L+0.01;s+=STEP){ const p = at(Math.min(s, L)); prof.push({s:Math.min(s,L), x:p[0], y:p[1], zt:Z(p[0], p[1])}); }
+  // fundul canalului: pantă constantă, aleasă după terenul de la capete, la ~1,4 m sub teren
+  const i0 = Math.round((prof[prof.length-1].zt - prof[0].zt)/L*10000)/10000, zd0 = d3.min(prof, p => p.zt - i0*p.s) - 0.9;
+  prof.forEach(p => { p.zd = zd0 + i0*p.s; p.h = p.zt - p.zd; });
+  const b = 1.0, m = 1.5;                                       // latimea la fund, taluzul 1:1,5
+  prof.forEach(p => p.A = p.h > 0 ? p.h*(b + m*p.h) : 0);
+  let V = 0; for(let i=1;i<prof.length;i++) V += (prof[i-1].A + prof[i].A)/2*(prof[i].s - prof[i-1].s);
+
+  function plan(t){
+    let h = `<rect x="${PX}" y="${PY}" width="${W*sc}" height="${H*sc}" fill="#0f1a2c" stroke="#2f4566"/>`;
+    const kT = seg(t, 6, 10.5, x=>x), kC = seg(t, 11, 14), kA = seg(t, 15, 17);
+    // TIN
+    if(kT > 0){ const n = Math.floor(NT*kT); for(let i=0;i<n;i++){ const a = pts[tri[3*i]], b2 = pts[tri[3*i+1]], c = pts[tri[3*i+2]];
+      h += `<polygon points="${mx(a.x)},${my(a.y)} ${mx(b2.x)},${my(b2.y)} ${mx(c.x)},${my(c.y)}" fill="${col((a.z+b2.z+c.z)/3)}" fill-opacity="${0.85 - 0.35*kC}" stroke="#0b1426" stroke-width="${0.7*(1-kC)}"/>`; } }
+    // curbe de nivel
+    if(kC > 0) cont.forEach(c => { const major = Math.abs(c.value - Math.round(c.value)) < 1e-6;
+      h += `<path d="${cpath(c)}" fill="none" stroke="${major ? '#fff' : 'rgba(255,255,255,.6)'}" stroke-width="${major ? 1.8 : 0.9}" opacity="${kC}"/>`; });
+    if(kC > 0.9) cont.filter(c => Math.abs(c.value - Math.round(c.value)) < 1e-6).forEach(c => { const g = c.coordinates[0] && c.coordinates[0][0]; if(!g) return; const q = g[Math.floor(g.length/3)];
+      h += `<text x="${PX + q[0]*G*sc}" y="${PY + q[1]*G*sc}" fill="#fff" font-size="13" font-weight="700" paint-order="stroke" stroke="#0b1426" stroke-width="3">${c.value.toFixed(0)}</text>`; });
+    // punctele masurate + raze
+    const kP = seg(t, 0.3, 5.5, x=>x), np = Math.floor(pts.length*kP);
+    for(let i=0;i<np;i++){ const p = pts[i]; if(i === np-1 && t < 6) h += `<line x1="${mx(ST.x)}" y1="${my(ST.y)}" x2="${mx(p.x)}" y2="${my(p.y)}" stroke="#ffc940" stroke-width="1.5"/>`;
+      h += `<circle cx="${mx(p.x)}" cy="${my(p.y)}" r="${kT > 0 ? 1.8 : 3}" fill="#3fd0ff"/>`; }
+    h += `<g transform="translate(${mx(ST.x)},${my(ST.y)})"><polygon points="0,-12 10,8 -10,8" fill="#ffc940" stroke="#000"/></g><text x="${mx(ST.x)+12}" y="${my(ST.y)-10}" fill="#ffc940" font-size="15" font-weight="700">stația</text>`;
+    // axa canalului
+    if(kA > 0){ const d = AX.map((p,i) => (i?'L':'M') + mx(p[0]) + ' ' + my(p[1])).join(' ');
+      h += `<path d="${d}" fill="none" stroke="#3fd0ff" stroke-width="5" stroke-dasharray="${L*sc*kA} 4000"/>`;
+      if(kA > 0.95) prof.filter((p,i) => i % 5 === 0).forEach(p => h += `<circle cx="${mx(p.x)}" cy="${my(p.y)}" r="4" fill="#fff"/><text x="${mx(p.x)+7}" y="${my(p.y)+16}" fill="#9fdcff" font-size="12">${(p.s/1000).toFixed(3).replace('.','+')}</text>`); }
+    h += `<text x="${PX}" y="${PY-12}" fill="#b4c0d4" font-size="16">Plan — ${np} puncte măsurate${kT > 0 ? ` · ${NT} triunghiuri` : ''}${kC > 0 ? ' · echidistanța curbelor 0,5 m' : ''}</text>`;
+    return h;
+  }
+  function profile(t){
+    const kL = seg(t, 17, 21), kX = seg(t, 21, 25);
+    if(kL <= 0) return '';
+    const x0 = 735, x1 = 988, y0 = 70, y1 = 300, zlo = Math.floor(d3.min(prof, p => p.zd) - 0.5), zhi = Math.ceil(d3.max(prof, p => p.zt) + 0.5);
+    const sx = s => x0 + s/L*(x1 - x0), sy = z => y1 - (z - zlo)/(zhi - zlo)*(y1 - y0);
+    let h = `<g opacity="${kL}"><rect x="${x0-50}" y="${y0-30}" width="${x1-x0+60}" height="${y1-y0+70}" rx="10" fill="rgba(12,20,38,.92)" stroke="rgba(140,170,220,.35)"/>
+      <text x="${x0-36}" y="${y0-8}" fill="#ffc940" font-size="16" font-weight="700">Profil longitudinal pe axa canalului</text>`;
+    for(let z=zlo; z<=zhi; z+=1) h += `<line x1="${x0}" y1="${sy(z)}" x2="${x1}" y2="${sy(z)}" stroke="#22355a"/><text x="${x0-6}" y="${sy(z)+4}" fill="#8a98b4" font-size="11" text-anchor="end">${z}</text>`;
+    const n = Math.max(2, Math.floor(prof.length*kL));
+    const T = prof.slice(0, n), tl = T.map((p,i) => (i?'L':'M') + sx(p.s) + ' ' + sy(p.zt)).join(' '), dl = T.map((p,i) => (i?'L':'M') + sx(p.s) + ' ' + sy(p.zd)).join(' ');
+    h += `<path d="${tl} ${T.slice().reverse().map(p => 'L' + sx(p.s) + ' ' + sy(p.zd)).join(' ')} Z" fill="rgba(255,98,98,.28)"/>`;
+    h += `<path d="${tl}" fill="none" stroke="#c9a46a" stroke-width="2.5"/><path d="${dl}" fill="none" stroke="#3fd0ff" stroke-width="2.5"/>
+      <text x="${x1}" y="${y1+22}" fill="#c9a46a" font-size="13" text-anchor="end">teren</text><text x="${x1}" y="${y1+38}" fill="#3fd0ff" font-size="13" text-anchor="end">fundul canalului, pantă ${(i0*1000).toFixed(1).replace('.',',')} ‰</text>
+      <text x="${x0}" y="${y1+30}" fill="#ff8080" font-size="13">săpătură</text>`;
+    // sectiunea curenta
+    const cs = prof[Math.min(prof.length-1, Math.floor(kX*(prof.length-1)))];
+    if(kX > 0) h += `<line x1="${sx(cs.s)}" y1="${y0}" x2="${sx(cs.s)}" y2="${y1}" stroke="#fff" stroke-dasharray="4 4"/>`;
+    h += `</g>`;
+    if(kX > 0){
+      const cx = 840, base = 560, s2 = 30, w = (b/2 + m*(cs.h + 0.4))*s2;
+      h += `<g><rect x="685" y="360" width="310" height="300" rx="10" fill="rgba(12,20,38,.92)" stroke="rgba(140,170,220,.35)"/>
+        <text x="700" y="386" fill="#ffc940" font-size="16" font-weight="700">Secțiunea transversală km ${(cs.s/1000).toFixed(3).replace('.','+')}</text>`;
+      const zt = base - cs.h*s2, zb = base;
+      h += `<path d="M 690 ${zt - 5} L 990 ${zt + 4}" stroke="#c9a46a" stroke-width="2.5"/>
+        <polygon points="${cx - b/2*s2 - m*cs.h*s2},${zt} ${cx - b/2*s2},${zb} ${cx + b/2*s2},${zb} ${cx + b/2*s2 + m*cs.h*s2},${zt}" fill="rgba(255,98,98,.35)" stroke="#3fd0ff" stroke-width="2.5"/>
+        <text x="${cx}" y="${zb + 20}" fill="#9fdcff" font-size="13" text-anchor="middle">b = 1,0 m · taluz 1:1,5 · h = ${cs.h.toFixed(2).replace('.',',')} m</text>
+        <text x="700" y="616" fill="#fff" font-size="15">Aria de săpătură A = ${cs.A.toFixed(2).replace('.',',')} m²</text>`;
+      if(kX > 0.95) h += `<text x="700" y="644" fill="#ffc940" font-size="16" font-weight="700">Volum ≈ ${Math.round(V).toLocaleString("ro-RO")} m³ (secțiuni medii)</text>`;
+      h += `</g>`;
+    }
+    return h;
+  }
+  const D = 28;
+  const clk = AnimUI.init({duration:D, loop:true, phases:[
+    {t:0, text:'Cu stația totală se măsoară terenul: fiecare punct primește <b>coordonatele X, Y și cota Z</b>.'},
+    {t:6, text:'Din puncte se construiește <b>modelul digital al terenului</b> (DTM) — o rețea de triunghiuri (TIN).'},
+    {t:11, text:'Din DTM rezultă <b>curbele de nivel</b> și diferențele de nivel — baza planului topografic.'},
+    {t:15, text:'Pe plan se trasează <b>axa canalului de irigații</b>; din DTM se extrage <b>profilul longitudinal</b> al terenului.'},
+    {t:21, text:'Cu <b>secțiunile transversale</b> se calculează volumele de săpătură — și de aici costurile lucrării.'}]});
+  document.querySelectorAll('.opts button').forEach(b2 => b2.onclick = () => clk.seek([0,6,11,15,21][+b2.dataset.s] + 0.01));
+  let lt = -1;
+  (function frame(){ const t = clk.update();
+    const st = t < 6 ? 0 : t < 11 ? 1 : t < 15 ? 2 : t < 21 ? 3 : 4;
+    document.querySelectorAll('.opts button').forEach(b2 => b2.classList.toggle('on', +b2.dataset.s === st));
+    if(Math.abs(t - lt) > 0.03){ lt = t; svg.innerHTML = plan(t) + profile(t); }
+    requestAnimationFrame(frame); })();
+})();
+</script>
+</body></html>

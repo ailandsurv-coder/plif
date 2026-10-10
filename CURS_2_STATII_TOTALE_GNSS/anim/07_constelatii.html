@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Constelațiile GNSS</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/three.min.js"></script><script src="../lib/OrbitControls.js"></script><script src="../lib/topojson-client.min.js"></script>
+<script src="../lib/world-data.js"></script><script src="../lib/earth-tex.js"></script>
+<script src="../lib/anim-ui.js"></script><script src="../lib/globe.js"></script><script src="../lib/gnss.js"></script>
+<style>
+  #leg{left:24px;top:110px;width:300px;padding:10px 12px}
+  #leg .row{display:flex;align-items:center;gap:9px;padding:6px 6px;border-radius:8px;cursor:pointer;font-size:clamp(13px,1.05vw,18px)}
+  #leg .row.off{opacity:.35}#leg .row.hl{background:rgba(255,255,255,.09)}
+  #leg .dot{width:14px;height:14px;border-radius:50%;flex:none;box-shadow:0 0 8px currentColor}
+  #leg .n{margin-left:auto;font-weight:700;font-variant-numeric:tabular-nums}
+  #info{left:24px;top:540px;width:300px;font-size:clamp(11px,.85vw,15px)}
+  #sky{right:20px;top:110px;width:330px;padding:10px 12px;text-align:center}
+  #sky canvas{width:250px;height:250px}
+  #cnt{display:grid;grid-template-columns:1fr 1fr;gap:2px 12px;text-align:left;font-size:clamp(12px,.95vw,16px);margin-top:4px}
+  #tm{right:20px;top:500px;width:330px;font-size:clamp(12px,.95vw,16px)}
+  .olbl{position:absolute;pointer-events:none;font-size:clamp(11px,.9vw,15px);font-weight:700;white-space:nowrap;text-shadow:0 0 4px #000,0 0 8px #000;transform:translate(8px,-50%)}
+  .olbl::before{content:"";position:absolute;left:-9px;top:50%;width:7px;height:7px;margin-top:-3.5px;border-radius:50%;background:currentColor}
+  @media (max-width:1000px){#sky,#tm,#info{display:none}}
+</style>
+</head><body><div id="stage"></div>
+<div class="a-title">Sistemele globale de navigație prin satelit<small>GPS · GLONASS · Galileo · BeiDou + sistemele regionale QZSS (Japonia) și NavIC (India) — situația din octombrie 2026</small></div>
+<div class="a-panel" id="leg"><h4>Sateliți operaționali</h4><div id="rows"></div>
+  <div style="color:var(--muted);font-size:.8em;margin-top:6px">clic pe un sistem: afișează / ascunde</div></div>
+<div class="a-panel" id="info"></div>
+<div class="a-panel" id="sky"><h4>Cerul văzut acum din București</h4><canvas id="cv" width="600" height="600"></canvas>
+  <div id="cnt"></div><div style="color:var(--muted);font-size:.78em;margin-top:4px">doar sateliții peste 10° elevație</div>
+  <div style="text-align:left;margin-top:8px;border-top:1px solid var(--line);padding-top:6px;font-size:clamp(12px,.9vw,15px)">Timp simulat: <b id="tsim">00:00</b>
+  <label style="display:flex;gap:8px;align-items:center;margin-top:4px">accelerare <input id="acc" type="range" min="200" max="6000" step="100" value="1800" style="flex:1"> <span id="accv"></span></label></div></div>
+<script>
+(function(){
+  const {seg, lerp, ease} = AnimUI, G0 = window.GNSS, D2R = Math.PI/180, K = 1/G0.RE;
+  const kit = GlobeKit.create(document.getElementById('stage'), {camZ:20, fov:38});
+  kit.camera.far = 400; kit.camera.updateProjectionMatrix();
+  const earth = GlobeKit.morphGlobe(kit, {graticule:30, step:3}); GlobeKit.glow(kit, 1);
+  const sats = G0.build();
+  const on = {}; G0.SYS.forEach(s => on[s.k] = true);
+
+  // orbite (cercuri inerțiale) pentru fiecare plan distinct
+  const orbitGrp = new THREE.Group(); kit.root.add(orbitGrp);
+  const seen = {};
+  sats.forEach(s => { const key = s.sys + s.a + s.i.toFixed(3) + s.raan.toFixed(2); if(seen[key]) return; seen[key] = 1;
+    const pts = []; for(let k=0;k<=128;k++){ const p = G0.eci({...s, u0:2*Math.PI*k/128, n:0}, 0); pts.push(new THREE.Vector3(p.y*K, p.z*K, p.x*K)); }
+    const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({color:G0.byKey(s.sys).col, transparent:true, opacity:0.22}));
+    l.userData.sys = s.sys; orbitGrp.add(l); });
+
+  // sateliții: câte un nor de puncte pe sistem + halou
+  function dotTex(){ const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d'), g = x.createRadialGradient(32,32,2,32,32,32);
+    g.addColorStop(0,'rgba(255,255,255,1)'); g.addColorStop(0.25,'rgba(255,255,255,.9)'); g.addColorStop(1,'rgba(255,255,255,0)'); x.fillStyle = g; x.fillRect(0,0,64,64); return new THREE.CanvasTexture(c); }
+  const tex = dotTex(), clouds = {};
+  G0.SYS.forEach(S => { const list = sats.filter(s => s.sys === S.k);
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(list.length*3), 3));
+    const m = new THREE.Points(g, new THREE.PointsMaterial({color:S.col, size:20, sizeAttenuation:false, map:tex, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending}));
+    kit.root.add(m); clouds[S.k] = {m, list}; });
+
+  // etichete centre de comandă (pe glob) — se rotesc cu Pământul
+  const lbls = G0.SYS.map(S => { const d = document.createElement('div'); d.className = 'olbl'; d.style.color = S.col; d.textContent = S.nume + ' — ' + S.tara; document.body.appendChild(d); return {S, d}; });
+
+  // legenda
+  const rows = document.getElementById('rows');
+  G0.SYS.forEach(S => { const r = document.createElement('div'); r.className = 'row'; r.dataset.k = S.k;
+    r.innerHTML = `<span class="dot" style="background:${S.col};color:${S.col}"></span><span>${S.nume}<br><span style="color:var(--muted);font-size:.8em">${S.tara}</span></span><span class="n">${S.op}</span>`;
+    r.onclick = () => { on[S.k] = !on[S.k]; r.classList.toggle('off', !on[S.k]); }; rows.appendChild(r); });
+  const info = document.getElementById('info');
+  function showInfo(S){ info.innerHTML = S ? `<h4 style="color:${S.col}">${S.nume} · ${S.tara}</h4>
+      <div>Altitudine: <b>${S.alt.toLocaleString('ro-RO')} km</b>${S.plane ? ` · ${S.plane} plane orbitale` : ''}</div><div>Înclinare: <b>${S.inc}°</b> · perioadă: <b>${S.per}</b></div>
+      <div>Primul lansament: ${S.an}</div><div>Semnale: ${S.semnale}</div><div style="color:var(--muted);margin-top:5px">${S.nota}</div>`
+    : `<h4>Constelațiile împreună</h4><div>În total, peste <b>${G0.SYS.reduce((a,s)=>a+s.op,0)}</b> de sateliți de navigație operaționali. Un receptor multi-GNSS modern urmărește simultan sute de semnale.</div>
+       <div style="color:var(--muted);margin-top:6px">Pozițiile sunt calculate pe orbite circulare (configurații Walker) — ilustrative, cu altitudini, înclinări și perioade reale.</div>`; }
+
+  // cerul din Bucuresti
+  const cv = document.getElementById('cv'), cx = cv.getContext('2d'), BUC = [44.43, 26.10];
+  function sky(t, pos){
+    const W = 600, R = 270, c = 300; cx.clearRect(0,0,W,W);
+    cx.fillStyle = 'rgba(10,22,44,.9)'; cx.beginPath(); cx.arc(c,c,R,0,7); cx.fill();
+    cx.strokeStyle = 'rgba(160,190,240,.35)'; cx.lineWidth = 1.5;
+    [0,30,60].forEach(e => { cx.beginPath(); cx.arc(c,c,R*(90-e)/90,0,7); cx.stroke(); });
+    cx.beginPath(); cx.moveTo(c-R,c); cx.lineTo(c+R,c); cx.moveTo(c,c-R); cx.lineTo(c,c+R); cx.stroke();
+    cx.fillStyle = '#b4c0d4'; cx.font = '26px Segoe UI'; cx.textAlign = 'center'; cx.fillText('N', c, c-R-6); cx.fillText('S', c, c+R+26); cx.fillText('E', c+R+16, c+9); cx.fillText('V', c-R-16, c+9);
+    cx.strokeStyle = 'rgba(255,100,100,.5)'; cx.setLineDash([6,6]); cx.beginPath(); cx.arc(c,c,R*80/90,0,7); cx.stroke(); cx.setLineDash([]);
+    const cnt = {};
+    pos.forEach(p => { if(!on[p.sys]) return; const a = G0.azel(p.e, BUC[0], BUC[1]); if(a.el < 10) return;
+      cnt[p.sys] = (cnt[p.sys]||0) + 1; const r = R*(90 - a.el)/90, x = c + r*Math.sin(a.az*D2R), y = c - r*Math.cos(a.az*D2R);
+      cx.fillStyle = G0.byKey(p.sys).col; cx.beginPath(); cx.arc(x, y, 9, 0, 7); cx.fill(); cx.strokeStyle = '#000'; cx.lineWidth = 2; cx.stroke(); });
+    const tot = Object.values(cnt).reduce((a,b)=>a+b,0);
+    document.getElementById('cnt').innerHTML = G0.SYS.map(S => `<span style="color:${S.col}">${S.nume.split(' ')[0]}: <b>${cnt[S.k]||0}</b></span>`).join('') + `<span style="grid-column:span 2;margin-top:3px">Total vizibili: <b style="font-size:1.25em">${tot}</b></span>`;
+  }
+
+  // narațiune: sistemele intră pe rând, apoi toate
+  const ORD = ['GPS','GLO','GAL','BDS','QZS','IRN'], STEP = 7;
+  const phases = ORD.map((k,i) => { const S = G0.byKey(k); return {t:i*STEP, text:`<b style="color:${S.col}">${S.nume}</b> (${S.tara}) — ${S.op} sateliți · ${S.alt.toLocaleString('ro-RO')} km · înclinare ${S.inc}°`}; });
+  phases.push({t:6*STEP, text:'Toate constelațiile împreună: din București un receptor multi-GNSS vede de obicei <b>30–40 de sateliți</b> deasupra orizontului (peste 10°) — de aici precizia și robustețea măsurătorilor actuale.'});
+  const clk = AnimUI.init({duration:6*STEP + 16, loop:true, phases, onSeek:()=>{ manual = false; }});
+  const controls = new THREE.OrbitControls(kit.camera, kit.renderer.domElement); controls.enablePan = false; controls.minDistance = 3; controls.maxDistance = 60;
+  let manual = false; kit.renderer.domElement.addEventListener('pointerdown', () => manual = true);
+
+  let simT = 0, last = performance.now(), focus = null;
+  const acc = document.getElementById('acc'), accv = document.getElementById('accv');
+  const V = new THREE.Vector3();
+  function frame(){
+    const t = clk.update(), now = performance.now(), dt = Math.min(0.1, (now - last)/1000); last = now;
+    simT += (clk.playing ? dt*clk.speed : 0) * (+acc.value);
+    accv.textContent = '×' + (+acc.value).toLocaleString('ro-RO');
+    const h = Math.floor(simT/3600) % 24, m = Math.floor(simT/60) % 60;
+    document.getElementById('tsim').textContent = String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0') + '  (ziua ' + (1 + Math.floor(simT/86400)) + ')';
+    const step = Math.min(6, Math.floor(t / STEP)), f = step < 6 ? ORD[step] : null;
+    if(f !== focus){ focus = f; showInfo(f ? G0.byKey(f) : null); document.querySelectorAll('#leg .row').forEach(r => r.classList.toggle('hl', r.dataset.k === f)); }
+    // vizibilitate în narațiune: sistemele apar pe rând (dacă nu sunt oprite manual)
+    const visible = k => on[k] && (step >= 6 || ORD.indexOf(k) <= step);
+    // Pământul se rotește
+    earth.group.rotation.y = G0.WE*simT;
+    const pos = [];
+    G0.SYS.forEach(S => { const C = clouds[S.k], a = C.m.geometry.attributes.position, vis = visible(S.k);
+      C.m.visible = vis;
+      C.list.forEach((s, i) => { const p = G0.eci(s, simT); a.setXYZ(i, p.y*K, p.z*K, p.x*K); if(vis) pos.push({sys:S.k, e:G0.ecef(p, simT)}); });
+      a.needsUpdate = true;
+      const hl = f === S.k; C.m.material.size = hl ? 26 : 18; });
+    orbitGrp.children.forEach(l => { l.visible = visible(l.userData.sys); l.material.opacity = f ? (l.userData.sys === f ? 0.55 : 0.12) : 0.25; });
+    sky(simT, pos);
+    // etichete centre
+    lbls.forEach(o => { const vis = visible(o.S.k) && (f === null || f === o.S.k);
+      const l = o.S.ctr[1]*D2R, ph = o.S.ctr[0]*D2R; V.set(Math.cos(ph)*Math.sin(l), Math.sin(ph), Math.cos(ph)*Math.cos(l)).multiplyScalar(1.01).applyAxisAngle(new THREE.Vector3(0,1,0), earth.group.rotation.y);
+      const front = V.clone().sub(kit.camera.position).dot(V) < 0;
+      const p = kit.toScreen(V); o.d.style.display = vis && front ? 'block' : 'none'; o.d.style.left = p.x + 'px'; o.d.style.top = p.y + 'px'; });
+    // camera: apropiere la sistemele regionale (GEO/IGSO)
+    if(!manual){ const far = step >= 4 && step < 6 ? 26 : (step >= 6 ? 24 : 17); const ang = t*0.05;
+      const d = lerp(kit.camera.position.length(), far, 0.03);
+      kit.camera.position.set(d*Math.sin(ang)*0.9, d*0.32, d*Math.cos(ang)*0.9); kit.camera.lookAt(0,0,0); }
+    else controls.update();
+    kit.render(); requestAnimationFrame(frame);
+  }
+  frame();
+})();
+</script>
+</body></html>

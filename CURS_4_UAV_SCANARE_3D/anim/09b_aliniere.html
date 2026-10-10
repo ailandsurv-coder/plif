@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Alinierea imaginilor și georeferențierea</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/three.min.js"></script><script src="../lib/OrbitControls.js"></script>
+<script src="../lib/anim-ui.js"></script><script src="../lib/teren.js"></script>
+<style>#st{right:20px;top:110px;width:330px;font-size:clamp(12px,1vw,17px)}#st .r{display:grid;grid-template-columns:1fr auto;gap:2px 10px}#st .r b{color:var(--gold);font-variant-numeric:tabular-nums;text-align:right}
+#st .big{font-size:1.6em}</style>
+</head><body><div id="stage"></div>
+<div class="a-title">Pasul 4 — Alinierea imaginilor și georeferențierea<small>Poziția fiecărei fotografii și a punctelor de legătură se calculează simultan (ajustare în bloc) · punctele de control fixează modelul în Stereo 70 / MN75</small></div>
+<div class="opts" style="flex-direction:row;top:100px;left:20px;right:auto"><button data-s="0" class="on">1 · Poziții GNSS</button><button data-s="1">2 · Alinierea</button><button data-s="2">3 · Georeferențierea</button><button data-s="3">4 · Rezultatul</button></div>
+<div class="a-panel" id="st"></div>
+<script>
+(function(){
+  const {seg, lerp, ease} = AnimUI, T = window.TEREN, EX = 2, Z0 = 60;
+  const ren = new THREE.WebGLRenderer({antialias:true, alpha:true, preserveDrawingBuffer:true}); ren.setPixelRatio(Math.min(2, devicePixelRatio||1)); document.getElementById('stage').appendChild(ren.domElement);
+  const sc = new THREE.Scene(), cam = new THREE.PerspectiveCamera(40, 1, 1, 6000);
+  sc.add(new THREE.AmbientLight(0xffffff, 0.7)); const dl = new THREE.DirectionalLight(0xffffff, 0.6); dl.position.set(-300, 500, 200); sc.add(dl);
+  const ctr = new THREE.OrbitControls(cam, ren.domElement); ctr.enableDamping = true; let manual = false; ren.domElement.addEventListener('pointerdown', () => manual = true);
+  function rs(){ ren.setSize(innerWidth, innerHeight); cam.aspect = innerWidth/innerHeight; cam.setViewOffset(innerWidth, innerHeight, innerWidth*0.08, 0, innerWidth, innerHeight); cam.updateProjectionMatrix(); } addEventListener('resize', rs); rs();
+  const P3 = (x, y, z) => new THREE.Vector3(x - T.W/2, (z - Z0)*EX, -(y - T.H/2));
+  // rețeaua de coordonate (fixă) — referința Stereo 70
+  const gridG = []; for(let x=0;x<=800;x+=100){ gridG.push(P3(x, 0, 52), P3(x, 500, 52)); } for(let y=0;y<=500;y+=100){ gridG.push(P3(0, y, 52), P3(800, y, 52)); }
+  sc.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(gridG), new THREE.LineBasicMaterial({color:0x2a4a7a})));
+  const terr = new THREE.Mesh(T.mesh(T.surface, {nx:200, ny:125, ex:EX, z0:Z0, colorFn:(x, y) => T.rgb(x, y)}), new THREE.MeshLambertMaterial({vertexColors:true, side:THREE.DoubleSide, transparent:true, opacity:0}));
+  sc.add(terr);
+  // modelul (camere + puncte) într-un grup: eroarea globală se aplică grupului
+  const model = new THREE.Group(); sc.add(model);
+  const ANG = Math.atan2(T.cB[1] - T.cA[1], T.cB[0] - T.cA[0]), O = [70, 95], LU = 640, LV = 330;
+  const toXY = (u, v) => [O[0] + u*Math.cos(ANG) - v*Math.sin(ANG), O[1] + u*Math.sin(ANG) + v*Math.cos(ANG)];
+  let sd = 5; const rnd = () => (sd = (sd*16807) % 2147483647)/2147483647, gs = () => { let a = 0; for(let i=0;i<6;i++) a += rnd(); return (a - 3)/0.7071; };
+  // camere: o fotografie din trei, pe cele 10 benzi
+  const CAMS = []; for(let i=0;i<10;i++){ const v = i*LV/9; for(let u=-18; u<=LU + 18; u += 54) CAMS.push({u, v}); }
+  const camGeo = new THREE.ConeGeometry(5, 8, 4, 1, true); camGeo.rotateY(Math.PI/4); camGeo.translate(0, -4, 0);
+  const camMat = new THREE.MeshBasicMaterial({color:0x7fe7ff, wireframe:true});
+  CAMS.forEach(c => { const [x, y] = toXY(c.u, c.v); c.p = P3(x, y, 155); c.n = new THREE.Vector3(gs()*3, gs()*5/EX, gs()*3); c.r = new THREE.Vector3(gs()*0.08, gs()*0.15, gs()*0.08);
+    c.m = new THREE.Mesh(camGeo, camMat); model.add(c.m); });
+  // puncte de legătură
+  const N = 9000, tp = new Float32Array(N*3), tn = new Float32Array(N*3), col = new Float32Array(N*3);
+  for(let i=0;i<N;i++){ const [x, y] = toXY(rnd()*LU, rnd()*LV), q = P3(x, y, T.surface(x, y)); tp.set([q.x, q.y, q.z], 3*i); tn.set([gs()*4, gs()*4, gs()*4], 3*i); col.set(T.rgb(x, y).map(v => Math.min(1, v*1.25)), 3*i); }
+  const pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N*3), 3)); pg.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const pts = new THREE.Points(pg, new THREE.PointsMaterial({size:2.6, sizeAttenuation:false, vertexColors:true})); model.add(pts);
+  // razele spre un punct observat din mai multe imagini
+  const HL = 4321, rays = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({color:0xffd84a, transparent:true})); model.add(rays);
+  const hlCams = CAMS.map((c, i) => ({i, d:c.p.distanceTo(new THREE.Vector3(tp[3*HL], tp[3*HL+1], tp[3*HL+2]))})).sort((a, b) => a.d - b.d).slice(0, 9).map(o => o.i);
+  // GCP: poziția reală (ace galbene, fixe) și poziția în model (albe, în grup)
+  const GCPUV = [[20,20],[LU-20,20],[LU-20,LV-20],[20,LV-20],[LU/2,LV/2]], pins = [], marks = [], links = [];
+  GCPUV.forEach(([u, v]) => { const [x, y] = toXY(u, v), q = P3(x, y, T.ground(x, y));
+    const pin = new THREE.Mesh(new THREE.CylinderGeometry(0, 4, 14, 12), new THREE.MeshBasicMaterial({color:0xffd84a})); pin.position.copy(q).add(new THREE.Vector3(0, 7, 0)); pin.rotation.x = Math.PI; sc.add(pin); pins.push(pin);
+    const mk = new THREE.Mesh(new THREE.SphereGeometry(3.5, 14, 10), new THREE.MeshBasicMaterial({color:0xffffff})); mk.position.copy(q); model.add(mk); marks.push(mk);
+    const ln = new THREE.Line(new THREE.BufferGeometry().setFromPoints([q, q]), new THREE.LineBasicMaterial({color:0xffffff})); sc.add(ln); links.push(ln); });
+  // eroarea globală a modelului înainte de georeferențiere (doar GNSS-ul de navigație al dronei)
+  const ERR = {t:new THREE.Vector3(9, 7*EX, -6), r:0.02, s:1.012};
+  const st = document.getElementById('st');
+  const T0 = [0, 4, 15, 23], DUR = [4, 11, 8, 7];
+  const clk = AnimUI.init({duration:30, loop:true, phases:[
+    {t:0, text:'Pozițiile aproximative ale fotografiilor vin de la GNSS-ul dronei (metri de eroare, fără RTK).'},
+    {t:4, text:'<b>Alinierea</b>: din punctele de legătură se calculează simultan poziția și orientarea fiecărei fotografii și coordonatele 3D ale punctelor.'},
+    {t:9, text:'Același punct este văzut din <b>multe fotografii</b> — razele lor trebuie să se întâlnească; abaterile (eroarea de reproiecție) se micșorează iterativ.'},
+    {t:15, text:'Modelul e coerent, dar deplasat și rotit față de sistemul de coordonate. <b>Punctele de control</b> (galben) îl aduc la poziția corectă.'},
+    {t:23, text:'Rezultat: fotografii orientate, <b>nor rar de puncte</b> georeferențiat — baza pentru norul dens și modele.'}]});
+  document.querySelectorAll('.opts button').forEach(b => b.onclick = () => clk.seek(T0[+b.dataset.s] + 0.01));
+  const pa = pg.attributes.position.array, V = new THREE.Vector3();
+  (function frame(){
+    const t = clk.update(), a = T0.reduce((acc, v, i) => t >= v ? i : acc, 0);
+    document.querySelectorAll('.opts button').forEach(b => b.classList.toggle('on', +b.dataset.s === a));
+    const noise = 1 - ease(seg(t, 6, 14)), geo = 1 - ease(seg(t, 16, 21)), shown = Math.floor(N*seg(t, 4, 9, x=>x));
+    // eroarea globală
+    model.position.copy(ERR.t).multiplyScalar(geo); model.rotation.y = ERR.r*geo; model.scale.setScalar(1 + (ERR.s - 1)*geo);
+    // camere
+    CAMS.forEach(c => { c.m.position.copy(c.p).addScaledVector(c.n, t < 4 ? 1 : noise); c.m.rotation.set(c.r.x*(t < 4 ? 1 : noise), c.r.y*(t < 4 ? 1 : noise), c.r.z*(t < 4 ? 1 : noise)); });
+    // puncte
+    for(let i=0;i<N;i++){ pa[3*i] = tp[3*i] + tn[3*i]*noise; pa[3*i+1] = tp[3*i+1] + tn[3*i+1]*noise; pa[3*i+2] = tp[3*i+2] + tn[3*i+2]*noise; }
+    pg.attributes.position.needsUpdate = true; pg.setDrawRange(0, shown);
+    // raze
+    const showR = t > 8.5 && t < 15; rays.visible = showR;
+    if(showR){ const L = [], P = new THREE.Vector3(pa[3*HL], pa[3*HL+1], pa[3*HL+2]); hlCams.forEach(i => { const c = CAMS[i].m.position; const dir = P.clone().sub(c);
+        L.push(c.clone(), c.clone().add(dir.multiplyScalar(1 + 0.06*noise*(i % 3 - 1)))); }); rays.geometry.setFromPoints(L); }
+    // GCP
+    const gv = a >= 2; pins.forEach(p => p.visible = gv); marks.forEach(m => m.visible = gv);
+    marks.forEach((m, i) => { m.getWorldPosition(V); links[i].geometry.setFromPoints([V.clone(), pins[i].position.clone().add(new THREE.Vector3(0, -7, 0))]); links[i].visible = gv && geo > 0.02; });
+    terr.material.opacity = 0.85*seg(t, 23, 25.5); pts.visible = t < 26.5 || true;
+    // statistici
+    const rep = (0.6 + 3.2*noise).toFixed(2).replace('.', ','), gerr = Math.hypot(ERR.t.x, ERR.t.y/EX, ERR.t.z)*geo + 0.018;
+    st.innerHTML = `<h4>Raport de aliniere</h4><div class="r"><span>Fotografii orientate</span><b>${t < 4 ? 0 : Math.min(CAMS.length, Math.round(CAMS.length*seg(t, 4, 9)))} / ${CAMS.length}</b>
+      <span>Puncte de legătură</span><b>${shown.toLocaleString('ro-RO')}</b><span>Eroare de reproiecție</span><b>${t < 4 ? '—' : rep + ' px'}</b>
+      <span>Eroare față de GCP</span><b>${a < 2 ? '—' : gerr < 0.1 ? (gerr*100).toFixed(1).replace('.', ',') + ' cm' : gerr.toFixed(2).replace('.', ',') + ' m'}</b></div>
+      <div style="color:var(--muted);font-size:.85em;margin-top:8px">În realitate: sute de mii de puncte de legătură; eroarea de reproiecție bună este sub ~1 pixel.</div>`;
+    if(!manual){ const k = ease(seg(t, 22, 26)); cam.position.lerp(new THREE.Vector3(lerp(-560, -220, k), lerp(430, 620, k), lerp(720, 640, k)), 0.05); ctr.target.lerp(new THREE.Vector3(-10, 60, -10), 0.05); cam.lookAt(ctr.target); }
+    ctr.update(); ren.render(sc, cam); requestAnimationFrame(frame);
+  })();
+})();
+</script>
+</body></html>

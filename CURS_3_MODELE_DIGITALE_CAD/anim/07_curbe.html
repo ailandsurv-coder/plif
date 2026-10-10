@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Generarea curbelor de nivel</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/three.min.js"></script><script src="../lib/OrbitControls.js"></script><script src="../lib/d3.min.js"></script>
+<script src="../lib/anim-ui.js"></script><script src="../lib/teren.js"></script>
+<style>#eq{position:absolute;left:24px;top:120px;display:flex;gap:6px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px 12px;font-size:clamp(13px,1vw,17px)}
+#eq button{background:#16233f;color:#fff;border:1px solid var(--line);border-radius:8px;padding:6px 10px;cursor:pointer;font-family:inherit;font-size:inherit}#eq button.on{background:var(--cyan);color:#04111f;font-weight:700}
+#info{left:24px;top:180px;width:300px;font-size:clamp(12px,.95vw,16px)}</style>
+</head><body><div id="stage"></div>
+<div class="a-title">Generarea curbelor de nivel<small>O curbă de nivel unește punctele de aceeași cotă — „linia malului" unei ape care ar urca peste teren · exagerare verticală ×3</small></div>
+<div id="eq">Echidistanța: <button data-e="0.5">0,5 m</button><button data-e="1" class="on">1 m</button><button data-e="2">2 m</button></div>
+<div class="a-panel" id="info"></div>
+<script>
+(function(){
+  const {seg, lerp, ease} = AnimUI, T = window.TEREN, EX = 3, Z0 = 60, BASE = -70;
+  const K = T.scene(document.getElementById('stage'), {camPos:[300, 380, -700]});
+  const gT = T.mesh(T.ground, {nx:200, ny:125, ex:EX, z0:Z0});
+  const terr = new THREE.Mesh(gT, new THREE.MeshLambertMaterial({vertexColors:true, transparent:true, side:THREE.DoubleSide})); K.sc.add(terr);
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(T.W, T.H), new THREE.MeshBasicMaterial({color:0x2f7fe0, transparent:true, opacity:0.45, depthWrite:false}));
+  water.rotation.x = -Math.PI/2; K.sc.add(water);
+  const plane = new THREE.Mesh(new THREE.PlaneGeometry(T.W, T.H), new THREE.MeshBasicMaterial({color:0xf4efe2, transparent:true, opacity:0}));
+  plane.rotation.x = -Math.PI/2; plane.position.y = BASE; K.sc.add(plane);
+  // grila de cote pentru curbe
+  const G = 4, nx = T.W/G + 1, ny = T.H/G + 1, vals = new Float64Array(nx*ny);
+  for(let j=0;j<ny;j++) for(let i=0;i<nx;i++) vals[j*nx+i] = T.ground(i*G, j*G);
+  const zmin = d3.min(vals), zmax = d3.max(vals);
+  let EQ = 1, levels = [], lines = [];
+  const grp = new THREE.Group(); K.sc.add(grp);
+  function build(){
+    grp.clear(); lines = [];
+    levels = d3.range(Math.ceil(zmin/EQ)*EQ, zmax, EQ).map(v => +v.toFixed(2));
+    levels.forEach(lv => {
+      const c = d3.contours().size([nx, ny]).thresholds([lv])(Array.from(vals))[0], pts = [];
+      c.coordinates.forEach(poly => poly.forEach(ring => { for(let k=0;k<ring.length-1;k++){ const a = ring[k], b = ring[k+1];
+        if(a[0] <= 0.5 || a[0] >= nx-0.5 || a[1] <= 0.5 || a[1] >= ny-0.5) continue; if(b[0] <= 0.5 || b[0] >= nx-0.5 || b[1] <= 0.5 || b[1] >= ny-0.5) continue;
+        pts.push((a[0]-0.5)*G - T.W/2, 0, -((a[1]-0.5)*G - T.H/2), (b[0]-0.5)*G - T.W/2, 0, -((b[1]-0.5)*G - T.H/2)); } }));
+      const major = Math.abs(lv/5 - Math.round(lv/5)) < 1e-6;
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pts), 3));
+      const l = new THREE.LineSegments(g, new THREE.LineBasicMaterial({color:major ? 0xff5a2e : 0xffd84a, transparent:true}));
+      l.userData = {lv, major, y0:(lv - Z0)*EX + 0.5}; grp.add(l); lines.push(l);
+    });
+  }
+  let lbls = [];
+  function labels(){ lbls.forEach(o => o.d.remove()); lbls = [];
+    lines.filter(l => l.userData.major).forEach(l => { const a = l.geometry.attributes.position.array; if(a.length < 12) return;
+      [0.3, 0.7].forEach(f => { const k = Math.floor(a.length/6*f)*6; const d = document.createElement('div'); d.className = 'lbl'; d.style.color = '#5c1f08';
+        d.style.textShadow = '0 0 3px #f4efe2,0 0 6px #f4efe2'; d.textContent = l.userData.lv.toFixed(0); document.body.appendChild(d); lbls.push({d, x:a[k], z:a[k+2]}); }); }); }
+  build(); labels();
+  document.querySelectorAll('#eq button').forEach(b => b.onclick = () => { EQ = +b.dataset.e; document.querySelectorAll('#eq button').forEach(x => x.classList.toggle('on', x === b)); build(); labels(); });
+  const info = document.getElementById('info');
+  const clk = AnimUI.init({duration:34, loop:true, phases:[
+    {t:0, text:'Imaginați-vă apa urcând peste teren: la fiecare cotă întreagă, <b>linia malului</b> este o curbă de nivel.'},
+    {t:12, text:'Curbele se <b>proiectează pe un plan orizontal</b> — așa apar pe planul topografic.'},
+    {t:19, text:'Pe plan: curbe <b>normale</b> la fiecare echidistanță și curbe <b>principale</b> (mai închise, cotate) la fiecare 5 m.'},
+    {t:26, text:'Citirea reliefului: <b>curbe dese = pantă mare</b> (taluzurile canalului, malurile văii), <b>curbe rare = teren plan</b>.'}]});
+  const controls = K.ctr; let manual = false; K.ren.domElement.addEventListener('pointerdown', () => manual = true);
+  const camA = new THREE.Vector3(300, 380, -700), camB = new THREE.Vector3(0, 900, 0.5);
+  (function frame(){
+    const t = clk.update(), lv = lerp(zmin - 0.5, zmax + 0.2, seg(t, 0.5, 11.5, x=>x)), drop = ease(seg(t, 12, 17)), top = ease(seg(t, 18, 21) * (1 - seg(t, 33, 34)));
+    water.position.y = (lv - Z0)*EX; water.visible = t < 12.5; water.material.opacity = 0.45*(1 - seg(t, 11.5, 12.5));
+    const cY = new THREE.Color(0xffd84a), cR = new THREE.Color(0xff5a2e), cB = new THREE.Color(0xa0522d), cBM = new THREE.Color(0x5c1f08);
+    lines.forEach(l => { const shown = t >= 12 || l.userData.lv <= lv; l.visible = shown; l.position.y = lerp(l.userData.y0, BASE + 0.5, drop);
+      l.material.depthTest = drop < 0.02; l.material.color.copy(l.userData.major ? cR : cY).lerp(l.userData.major ? cBM : cB, drop); });
+    plane.material.opacity = 0.95*drop;
+    terr.material.opacity = (1 - 0.5*seg(t, 11.5, 13))*(1 - top); terr.visible = top < 0.99;
+    // cote pe curbele principale (vedere de sus)
+    lbls.forEach(o => { const show = top > 0.95; o.d.style.display = show ? 'block' : 'none'; if(!show) return;
+      const v = new THREE.Vector3(o.x, BASE + 0.5, o.z).project(K.cam); o.d.style.left = ((v.x + 1)/2*innerWidth) + 'px'; o.d.style.top = ((1 - v.y)/2*innerHeight) + 'px'; });
+    if(!manual){ K.cam.position.copy(camA.clone().lerp(camB, top)); K.cam.up.set(0, 1, 0).lerp(new THREE.Vector3(0, 0, -1), top).normalize(); K.cam.lookAt(0, lerp(0, BASE, top), 0); controls.target.set(0, lerp(0, BASE, top), 0); }
+    info.innerHTML = t < 12 ? `<h4>Nivelul apei</h4><div style="font-size:1.8em;font-weight:800;color:#7fd0ff">${lv.toFixed(1).replace('.',',')} m</div><div>Linia malului la cotele ${EQ === 1 ? 'întregi' : 'multiple de ' + String(EQ).replace('.',',') + ' m'} rămâne desenată pe teren.</div>`
+      : `<h4>Curbe de nivel</h4><div>Echidistanța: <b>${String(EQ).replace('.',',')} m</b> · ${levels.length} curbe</div><div>Cote: ${levels[0].toFixed(1).replace('.',',')} – ${levels[levels.length-1].toFixed(1).replace('.',',')} m</div><div style="margin-top:6px;color:var(--muted)">Schimbă echidistanța din butoanele de sus: la 0,5 m apar detaliile terenului plan.</div>`;
+    K.ren.render(K.sc, K.cam); if(manual) controls.update();
+    requestAnimationFrame(frame);
+  })();
+})();
+</script>
+</body></html>

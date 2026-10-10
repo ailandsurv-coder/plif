@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Planșele proiectului</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<style>
+  #list{position:absolute;left:16px;top:96px;bottom:20px;width:250px;overflow-y:auto;display:flex;flex-direction:column;gap:8px}
+  #list .it{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:6px;cursor:pointer}
+  #list .it.on{border-color:var(--cyan);box-shadow:0 0 0 2px var(--cyan) inset}
+  #list img{width:100%;height:84px;object-fit:cover;border-radius:6px;background:#fff;display:block}
+  #list span{display:block;font-size:12.5px;line-height:1.25;margin-top:5px;color:var(--text)}
+  #view{position:absolute;left:282px;right:16px;top:96px;bottom:84px;background:#fff;border-radius:10px;overflow:hidden;cursor:grab}
+  #view.drag{cursor:grabbing}
+  #view img{position:absolute;left:0;top:0;transform-origin:0 0;user-select:none;-webkit-user-drag:none;image-rendering:auto}
+  #cap{position:absolute;left:282px;right:300px;bottom:20px;height:54px;display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:0 12px;font-size:clamp(13px,1.05vw,18px)}
+  #cap .t{flex:1}#cap .t b{color:var(--gold)}
+  #cap button{background:#16233f;color:#fff;border:1px solid var(--line);border-radius:8px;width:40px;height:36px;font-size:18px;cursor:pointer}
+  #zoom{color:var(--muted);width:60px;text-align:center;font-variant-numeric:tabular-nums}
+</style>
+</head><body>
+<div class="a-title">Planșele proiectului<small>Planuri de situație și profile reale — rotița = zoom, trage cu mouse-ul pentru a deplasa, dublu-clic = încadrare</small></div>
+<div id="list"></div>
+<div id="view"><img id="im" draggable="false"></div>
+<div id="cap"><div class="t" id="ct"></div><button id="zo">−</button><span id="zoom"></span><button id="zi">+</button><button id="zf" title="Încadrare">⤢</button><button id="pr">◀</button><button id="nx">▶</button></div>
+<script>
+(function(){
+  const PL = [
+    ['pl_09_susita1.jpg', 'Amenajarea râurilor ce intersectează CMSB — Râul Susița (1)', 'Plan de situație: canalul magistral Siret–Bărăgan, albia regularizată a râului, curbele de nivel generate din norul de puncte.'],
+    ['pl_10_susita2.jpg', 'Râul Susița (2)', 'Albia proiectată (albastru) peste curbele de nivel ale terenului existent.'],
+    ['pl_11_susita3.jpg', 'Râul Susița (3)', 'Tronsonul din aval: lățimea albiei și racordarea cu terenul natural.'],
+    ['pl_12_vinalcool.jpg', 'Amenajarea văii Vinalcool la intersecția cu CMSB', 'Traseul văii amenajate și traversarea canalului magistral.'],
+    ['pl_07_curbe.jpg', 'Curbe de nivel generate dintr-un model digital', 'Curbele principale și normale, cotate, pe un plan de situație.'],
+    ['pl_15_profil_transversal.jpg', 'Profil transversal', 'Secțiune perpendiculară pe traseu: cotele terenului (EXISTING HEIGHTS) și distanțele parțiale între puncte.'],
+    ['pl_16_profil_longitudinal.jpg', 'Profil longitudinal 6 — C.M. Siret–Bărăgan (ProfLT)', 'Linia terenului și linia proiectată, cu „chitara" de date: cote, distanțe, pante.'],
+    ['pl_17_profile_teren.jpg', 'Profile transversale ale terenului (din 50 în 50 m)', 'Secțiuni succesive generate automat de-a lungul axei.'],
+    ['pl_18_profile_proiectate.jpg', 'Profile transversale proiectate', 'Secțiunea tip a lucrării suprapusă pe fiecare profil de teren.'],
+    ['pl_19_profil_longitudinal6.jpg', 'Profil longitudinal 6 — detaliu', 'Aceeași axă, la o scară mai mare: cotele de proiect și diferențele față de teren.'],
+    ['pl_20_volume.jpg', 'Calculul volumelor de săpătură / umplutură', 'Conturul zonei, cotele punctelor și solidul de volum (raportul „Volume report").']];
+  const list = document.getElementById('list'), view = document.getElementById('view'), im = document.getElementById('im');
+  let cur = 0, s = 1, tx = 0, ty = 0;
+  PL.forEach((p, i) => { const d = document.createElement('div'); d.className = 'it'; d.innerHTML = `<img src="../img/orig/${p[0]}" loading="lazy"><span>${p[1]}</span>`; d.onclick = () => show(i); list.appendChild(d); });
+  const apply = () => { im.style.transform = `translate(${tx}px,${ty}px) scale(${s})`; document.getElementById('zoom').textContent = Math.round(s*100) + '%'; };
+  function fit(){ const W = view.clientWidth, H = view.clientHeight, w = im.naturalWidth, h = im.naturalHeight; if(!w) return;
+    s = Math.min(W/w, H/h); tx = (W - w*s)/2; ty = (H - h*s)/2; apply(); }
+  function show(i){ cur = (i + PL.length) % PL.length; im.onload = fit; im.src = '../img/orig/' + PL[cur][0];
+    document.getElementById('ct').innerHTML = `<b>${PL[cur][1]}</b> — ${PL[cur][2]}`;
+    [...list.children].forEach((c, j) => c.classList.toggle('on', j === cur)); list.children[cur].scrollIntoView({block:'nearest'}); }
+  function zoomAt(f, cx, cy){ const ns = Math.max(0.05, Math.min(6, s*f)); tx = cx - (cx - tx)*ns/s; ty = cy - (cy - ty)*ns/s; s = ns; apply(); }
+  view.addEventListener('wheel', e => { e.preventDefault(); const r = view.getBoundingClientRect(); zoomAt(e.deltaY < 0 ? 1.18 : 1/1.18, e.clientX - r.left, e.clientY - r.top); }, {passive:false});
+  let drag = null;
+  view.addEventListener('pointerdown', e => { drag = {x:e.clientX, y:e.clientY, tx, ty}; view.classList.add('drag'); view.setPointerCapture(e.pointerId); });
+  view.addEventListener('pointermove', e => { if(!drag) return; tx = drag.tx + e.clientX - drag.x; ty = drag.ty + e.clientY - drag.y; apply(); });
+  view.addEventListener('pointerup', () => { drag = null; view.classList.remove('drag'); });
+  view.addEventListener('dblclick', fit);
+  const c = () => [view.clientWidth/2, view.clientHeight/2];
+  document.getElementById('zi').onclick = () => zoomAt(1.4, ...c());
+  document.getElementById('zo').onclick = () => zoomAt(1/1.4, ...c());
+  document.getElementById('zf').onclick = fit;
+  document.getElementById('pr').onclick = () => show(cur - 1);
+  document.getElementById('nx').onclick = () => show(cur + 1);
+  addEventListener('resize', fit);
+  // tastele de navigare merg la prezentare (dacă pagina e în prezentare)
+  addEventListener('keydown', e => { if(window.parent !== window && ['ArrowRight','ArrowLeft','PageDown','PageUp','Home','End','f','F'].includes(e.key)){ window.parent.postMessage({deckKey:e.key}, '*'); e.preventDefault(); }
+    if(e.key === '+') zoomAt(1.4, ...c()); if(e.key === '-') zoomAt(1/1.4, ...c()); });
+  addEventListener('message', e => { const d = e.data || {}; if(d.plansa != null) show(d.plansa); });
+  const h = parseInt(location.hash.slice(1)); show(isNaN(h) ? 0 : h);
+})();
+</script>
+</body></html>

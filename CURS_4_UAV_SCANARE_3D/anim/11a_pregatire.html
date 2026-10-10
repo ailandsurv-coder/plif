@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pregătirea zborului fotogrametric</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/anim-ui.js"></script><script src="../lib/teren.js"></script>
+<style>
+  #map{position:absolute;left:20px;top:150px;width:calc(64% - 30px);height:calc(100vh - 300px)}
+  #map svg{width:100%;height:100%}
+  #pn{right:20px;top:100px;width:calc(36% - 20px);bottom:150px;overflow-y:auto;font-size:clamp(11px,.92vw,16px)}
+  #pn .tt{font-size:1.35em;font-weight:700;margin:2px 0 6px}
+  #pn label{display:flex;justify-content:space-between;margin:4px 0 0;color:var(--muted)}#pn label b{color:var(--text)}
+  #pn input[type=range]{width:100%}
+  #pn select{width:100%;background:#16233f;color:#fff;border:1px solid var(--line);border-radius:8px;padding:5px;font-size:inherit}
+  #pn .kv{display:grid;grid-template-columns:1fr auto;gap:2px 10px;margin-top:8px;padding-top:6px;border-top:1px solid var(--line)}#pn .kv b{color:var(--gold);text-align:right}
+  #pn .warn{color:#ff8080}
+  #steps{display:flex;gap:4px;margin-bottom:8px}#steps i{flex:1;height:5px;border-radius:3px;background:#24365a}#steps i.on{background:var(--cyan)}
+  #ctl.mini label,#ctl.mini input,#ctl.mini select{display:none}
+  .chk{display:flex;gap:8px;align-items:flex-start;margin:4px 0;opacity:.35;transition:opacity .3s}.chk.on{opacity:1}.chk span{color:var(--green);font-weight:800}
+</style>
+</head><body>
+<div class="a-title">Pasul 1 — Pregătirea zborului fotogrametric<small>Zona și precizia cerută → camera și altitudinea → suprapuneri și benzi → puncte de control la sol → verificări înainte de decolare</small></div>
+<div class="opts" style="flex-direction:row;top:100px;left:20px;right:auto"><button data-s="0" class="on">1 · Zona</button><button data-s="1">2 · GSD și altitudinea</button><button data-s="2">3 · Benzile de zbor</button><button data-s="3">4 · Puncte de control</button><button data-s="4">5 · Înainte de zbor</button></div>
+<div id="map"><svg id="sv" viewBox="-10 -10 820 520" preserveAspectRatio="xMidYMid meet"></svg></div>
+<div class="a-panel" id="pn">
+  <div id="steps"><i></i><i></i><i></i><i></i><i></i></div>
+  <div id="txt"></div>
+  <div id="ctl">
+    <label>Camera</label><select id="cs"></select>
+    <label>GSD dorit <b id="gv"></b></label><input id="gr" type="range" min="1" max="5" step="0.1" value="2.5">
+    <label>Suprapunere longitudinală <b id="fv"></b></label><input id="fr" type="range" min="60" max="90" step="5" value="80">
+    <label>Suprapunere laterală <b id="lv"></b></label><input id="lr" type="range" min="50" max="80" step="5" value="70">
+    <label>Viteza de zbor <b id="vv"></b></label><input id="vr" type="range" min="4" max="15" step="1" value="8">
+    <div class="kv" id="kv"></div>
+  </div>
+</div>
+<script>
+(function(){
+  const {seg, lerp, ease} = AnimUI, T = window.TEREN, sv = document.getElementById('sv');
+  const CAMS = [{n:'senzor 1″ · 20 MP · f = 8,8 mm', w:13.2, px:5472, py:3648, f:8.8, int:2}, {n:'senzor 4/3″ · 20 MP · f = 12,3 mm', w:17.3, px:5280, py:3956, f:12.3, int:0.7}, {n:'full-frame · 45 MP · f = 35 mm', w:35.9, px:8192, py:5460, f:35, int:0.7}];
+  const P = {cam:0, gsd:2.5, front:80, side:70, v:8};
+  const cs = document.getElementById('cs'); CAMS.forEach((c, i) => cs.add(new Option(c.n, i)));
+  // zona de lucru: dreptunghi rotit, aliniat cu canalul
+  const ANG = Math.atan2(T.cB[1] - T.cA[1], T.cB[0] - T.cA[0]), O = [70, 95], LU = 640, LV = 330;
+  const toXY = (u, v) => [O[0] + u*Math.cos(ANG) - v*Math.sin(ANG), O[1] + u*Math.sin(ANG) + v*Math.cos(ANG)];
+  const S = (x, y) => [x, T.H - y];                                  // metri -> SVG (nord sus)
+  const pt = (u, v) => S(...toXY(u, v)).map(n => n.toFixed(1)).join(',');
+  const poly = [pt(0,0), pt(LU,0), pt(LU,LV), pt(0,LV)].join(' ');
+  const ha = (LU*LV/10000).toFixed(1).replace('.', ',');
+  const ortoURL = T.orto(1).toDataURL('image/jpeg', 0.85);
+  function plan(){
+    const c = CAMS[P.cam], p = c.w/c.px, H = P.gsd/100*c.f/p, fwA = P.gsd/100*c.px, fwL = P.gsd/100*c.py;   // across = latura lungă a senzorului
+    const ls = fwA*(1 - P.side/100), bs = fwL*(1 - P.front/100);
+    const nL = Math.ceil(LV/ls) + 1, nP = Math.ceil((LU + 2*bs)/bs) + 1;
+    const len = nL*(LU + 2*bs) + (nL - 1)*ls, tmin = len/P.v/60 + nL*0.25, bat = Math.ceil(tmin/22);
+    const intv = bs/P.v, blur = P.v*(1/1000)/(P.gsd/100);
+    return {H, fwA, fwL, ls, bs, nL, nP, photos:nL*nP, len, tmin, bat, intv, blur, minInt:c.int};
+  }
+  const GCP = [[20,20,'GCP'],[LU-20,20,'GCP'],[LU-20,LV-20,'GCP'],[20,LV-20,'GCP'],[LU/2,LV/2,'GCP'],[LU*0.25,LV*0.55,'CP'],[LU*0.72,LV*0.3,'CP'],[LU*0.55,LV*0.85,'CP']];
+  const target = (x, y, cp, s) => `<g transform="translate(${x},${y})">${cp ? `<circle r="${7*s}" fill="#fff" stroke="#111" stroke-width="1.5"/><circle r="${3*s}" fill="#d33"/>`
+     : `<rect x="${-7*s}" y="${-7*s}" width="${14*s}" height="${14*s}" fill="#fff" stroke="#111"/><path d="M0 0 L${-7*s} ${-7*s} L0 ${-7*s}Z M0 0 L${7*s} ${7*s} L0 ${7*s}Z" fill="#111"/>`}</g>`;
+  function draw(a, f){
+    const R = plan(); let h = `<image href="${ortoURL}" x="0" y="0" width="${T.W}" height="${T.H}" opacity="${a === 0 ? 1 : 0.8}"/>`;
+    const k0 = a === 0 ? seg(f, 0.1, 0.5) : 1;
+    h += `<polygon points="${poly}" fill="rgba(255,201,64,${0.12*k0})" stroke="#ffc940" stroke-width="3" stroke-dasharray="${2000*k0} 2000"/>`;
+    if(a === 0 && f > 0.5) h += `<text x="${S(...toXY(LU/2, LV + 18))[0]}" y="${S(...toXY(LU/2, LV + 18))[1]}" fill="#ffc940" font-size="20" font-weight="700" text-anchor="middle" paint-order="stroke" stroke="#000" stroke-width="3">zona de lucru: ${LU} × ${LV} m = ${ha} ha</text>`;
+    if(a === 1){ // amprenta unei imagini, crește/scade cu GSD
+      const u = LU*0.35, v = LV*0.5, q = [[u - R.fwL/2, v - R.fwA/2], [u + R.fwL/2, v - R.fwA/2], [u + R.fwL/2, v + R.fwA/2], [u - R.fwL/2, v + R.fwA/2]].map(([a1, b1]) => pt(a1, b1)).join(' ');
+      h += `<polygon points="${q}" fill="rgba(63,208,255,.25)" stroke="#3fd0ff" stroke-width="3"/>`;
+      const c = S(...toXY(u, v)); h += `<text x="${c[0]}" y="${c[1]}" fill="#fff" font-size="18" font-weight="700" text-anchor="middle" paint-order="stroke" stroke="#000" stroke-width="3">o fotografie: ${R.fwL.toFixed(0)} × ${R.fwA.toFixed(0)} m</text>`; }
+    if(a >= 2){ const kk = a === 2 ? seg(f, 0.05, 0.75, x=>x) : 1, nShow = Math.floor(R.nL*kk*R.nP), path = [];
+      let cnt = 0;
+      for(let i=0;i<R.nL;i++){ const v = Math.min(LV, i*LV/(R.nL - 1)), us = []; for(let j=0;j<R.nP;j++) us.push(-R.bs + j*R.bs); if(i % 2) us.reverse();
+        us.forEach((u, j) => { if(cnt++ >= nShow) return; path.push(pt(u, v));
+          if(a === 2 && (j % 2 === 0)) { const q = [[u - R.fwL/2, v - R.fwA/2], [u + R.fwL/2, v - R.fwA/2], [u + R.fwL/2, v + R.fwA/2], [u - R.fwL/2, v + R.fwA/2]].map(([a1, b1]) => pt(a1, b1)).join(' ');
+            h += `<polygon points="${q}" fill="rgba(63,208,255,.035)" stroke="rgba(63,208,255,.18)"/>`; }
+          h += `<circle cx="${S(...toXY(u, v))[0]}" cy="${S(...toXY(u, v))[1]}" r="2.6" fill="#fff"/>`; }); }
+      h += `<polyline points="${path.join(' ')}" fill="none" stroke="#ff6262" stroke-width="2"/>`;
+      if(path.length){ const last = path[path.length - 1].split(','); h += `<g transform="translate(${last[0]},${last[1]})"><circle r="9" fill="#ffc940" stroke="#000"/><path d="M-14 0 H14 M0 -14 V14" stroke="#ffc940" stroke-width="2"/></g>`; }
+      const hp = S(...toXY(-40, -30)); h += `<g transform="translate(${hp[0]},${hp[1]})"><circle r="12" fill="#16233f" stroke="#5be39a" stroke-width="2"/><text y="5" fill="#5be39a" font-size="14" font-weight="800" text-anchor="middle">H</text></g>`; }
+    if(a >= 3){ const kk = a === 3 ? seg(f, 0.05, 0.6, x=>x) : 1;
+      GCP.forEach((g, i) => { if(i/GCP.length > kk) return; const s = S(...toXY(g[0], g[1]));
+        h += target(s[0], s[1], g[2] === 'CP', 1.3) + `<text x="${s[0] + 12}" y="${s[1] - 10}" fill="${g[2] === 'CP' ? '#ff8080' : '#fff'}" font-size="15" font-weight="700" paint-order="stroke" stroke="#000" stroke-width="3">${g[2]}${i < 5 ? i + 1 : i - 4}</text>`; }); }
+    sv.innerHTML = h;
+    // valori
+    document.getElementById('gv').textContent = P.gsd.toFixed(1).replace('.', ',') + ' cm/px'; document.getElementById('fv').textContent = P.front + ' %';
+    document.getElementById('lv').textContent = P.side + ' %'; document.getElementById('vv').textContent = P.v + ' m/s';
+    const w1 = R.intv < R.minInt, w2 = R.blur > 0.5;
+    document.getElementById('kv').innerHTML = `<span>Altitudinea de zbor</span><b>${R.H.toFixed(0)} m</b><span>Amprenta unei imagini</span><b>${R.fwL.toFixed(0)} × ${R.fwA.toFixed(0)} m</b>
+      <span>Distanța între fotografii</span><b>${R.bs.toFixed(1).replace('.', ',')} m</b><span>Distanța între benzi</span><b>${R.ls.toFixed(1).replace('.', ',')} m</b>
+      <span>Benzi / fotografii</span><b>${R.nL} / ${R.photos}</b><span>Lungimea traseului</span><b>${(R.len/1000).toFixed(1).replace('.', ',')} km</b>
+      <span>Durata zborului</span><b>~${Math.round(R.tmin)} min (${R.bat} baterii)</b>
+      <span class="${w1 ? 'warn' : ''}">Interval între declanșări</span><b class="${w1 ? 'warn' : ''}">${R.intv.toFixed(1).replace('.', ',')} s</b>
+      <span class="${w2 ? 'warn' : ''}">Mișcare în 1/1000 s</span><b class="${w2 ? 'warn' : ''}">${R.blur.toFixed(2).replace('.', ',')} px</b>
+      ${w1 ? '<span class="warn" style="grid-column:span 2">camera nu poate declanșa atât de des — scade viteza</span>' : ''}${w2 ? '<span class="warn" style="grid-column:span 2">imagini mișcate — scade viteza sau timpul de expunere</span>' : ''}`;
+  }
+  const TXT = [
+    `<div class="tt">1 · Zona de lucru și cerințele</div><ul><li>Se delimitează zona (contur KML / DXF din proiect) cu o margine de siguranță.</li><li>Se stabilește <b>precizia cerută</b> — de ea depinde GSD-ul: pentru planuri 1:500, GSD de 2–3 cm.</li><li>Se stabilesc sistemul de coordonate (Stereo 70, MN75) și livrabilele: ortofotoplan, DSM/DTM, nor de puncte, curbe de nivel.</li></ul>`,
+    `<div class="tt">2 · Camera și altitudinea</div><p>Din GSD-ul dorit rezultă <b>altitudinea de zbor</b>: H = GSD × f / p. Altitudine mai mică = detalii mai fine, dar mai multe fotografii și zboruri.</p><p style="color:var(--muted)">Max. 120 m față de sol în categoria „deschisă".</p>`,
+    `<div class="tt">3 · Benzile de zbor</div><p>Din amprenta imaginii și suprapuneri rezultă <b>distanța dintre benzi</b> și <b>distanța dintre fotografii</b>. Benzile depășesc zona cu cel puțin o fotografie la capete.</p><p style="color:var(--muted)">Benzile se orientează de obicei pe latura lungă a zonei (mai puține întoarceri) și perpendicular pe vânt.</p>`,
+    `<div class="tt">4 · Puncte de control la sol</div><p><b>GCP</b> (pătrat alb-negru) — puncte cu coordonate măsurate GNSS RTK sau cu stația totală, folosite la georeferențierea modelului: la colțuri, pe margini și în interior.</p><p><b>CP</b> (puncte de verificare, roșu) — măsurate la fel, dar <b>nefolosite</b> la calcul: arată precizia reală a produselor.</p><p style="color:var(--muted)">Cu dronă RTK/PPK se pot folosi mai puține GCP, dar punctele de verificare rămân obligatorii.</p>`,
+    `<div class="tt">5 · Înainte de decolare</div>${['Zona geografică UAS și autorizările (AACR); proprietarii informați', 'Meteo: vânt sub limita dronei, fără precipitații; lumină uniformă, umbre scurte', 'GCP-urile materializate și măsurate; fișierul de coordonate pregătit', 'Baterii încărcate, card de memorie gol, elicele verificate', 'Calibrarea busolei/IMU; conexiunea RTK (NTRIP) sau baza GNSS pentru PPK', 'Setările camerei: focalizare, timp de expunere scurt, format imagini', 'Planul încărcat; înălțimea de revenire (RTH) peste cele mai înalte obstacole'].map(x => `<div class="chk"><span>✓</span><div>${x}</div></div>`).join('')}`];
+  const T0 = [0, 7, 15, 26, 34], DUR = [7, 8, 11, 8, 10];
+  const clk = AnimUI.init({duration:44, loop:true, phases:[
+    {t:0, text:'Se pornește de la <b>zona de lucru</b> și de la <b>precizia</b> cerută de proiect.'},
+    {t:7, text:'GSD-ul dorit fixează <b>altitudinea de zbor</b> — amprenta unei fotografii crește odată cu ea.'},
+    {t:15, text:'Software-ul de planificare trasează <b>benzile</b> și punctele de declanșare din amprentă și suprapuneri.'},
+    {t:26, text:'<b>Punctele de control</b> se materializează pe teren și se măsoară GNSS RTK înainte de zbor.'},
+    {t:34, text:'Lista de verificări de dinaintea decolării: legal, meteo, echipament, RTK, cameră, plan de zbor.'}]});
+  document.querySelectorAll('.opts button').forEach(b => b.onclick = () => clk.seek(T0[+b.dataset.s] + 0.01));
+  [['cs', 'cam'], ['gr', 'gsd'], ['fr', 'front'], ['lr', 'side'], ['vr', 'v']].forEach(([id, k]) => document.getElementById(id).addEventListener('input', e => { P[k] = +e.target.value; clk.pause(); }));
+  let last = -1;
+  (function frame(){
+    const t = clk.update(), a = T0.reduce((acc, v, i) => t >= v ? i : acc, 0), f = (t - T0[a])/DUR[a];
+    if(a !== last){ last = a; document.getElementById('txt').innerHTML = TXT[a]; [...document.querySelectorAll('#steps i')].forEach((s, i) => s.classList.toggle('on', i <= a));
+      document.querySelectorAll('.opts button').forEach(b => b.classList.toggle('on', +b.dataset.s === a)); document.getElementById('ctl').style.display = a === 0 || a === 4 ? 'none' : ''; document.getElementById('ctl').classList.toggle('mini', a === 3); }
+    if(a === 4) document.querySelectorAll('.chk').forEach((c, i) => c.classList.toggle('on', f > 0.05 + i*0.12));
+    if(a === 1 && clk.playing){ P.gsd = +(lerp(1.5, 4, 0.5 - 0.5*Math.cos(f*Math.PI*2))).toFixed(1); document.getElementById('gr').value = P.gsd; }
+    draw(a, f);
+    requestAnimationFrame(frame);
+  })();
+})();
+</script>
+</body></html>

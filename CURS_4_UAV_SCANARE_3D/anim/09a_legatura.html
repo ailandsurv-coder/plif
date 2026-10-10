@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Puncte de legătură</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/anim-ui.js"></script><script src="../lib/teren.js"></script>
+<style>
+  #cv{position:absolute;left:20px;top:150px;width:calc(100% - 40px);height:calc(100vh - 300px)}
+  #stat{right:20px;top:96px;font-size:clamp(13px,1.05vw,18px);padding:8px 14px}
+  #stat b{color:var(--gold)}
+</style>
+</head><body>
+<div class="a-title">Pasul 3 — Puncte de legătură și puncte de control în imagini<small>Software-ul găsește automat aceleași detalii în imaginile care se suprapun; operatorul marchează punctele de control (GCP)</small></div>
+<div class="opts" style="flex-direction:row;top:100px;left:20px;right:auto"><button data-s="0" class="on">1 · Puncte caracteristice</button><button data-s="1">2 · Potrivire</button><button data-s="2">3 · Filtrarea greșelilor</button><button data-s="3">4 · Marcarea GCP</button></div>
+<div class="a-panel" id="stat"></div>
+<canvas id="cv"></canvas>
+<script>
+(function(){
+  const {seg, lerp, ease} = AnimUI, T = window.TEREN, cv = document.getElementById('cv'), cx = cv.getContext('2d');
+  const ORT = T.orto(1), oc = ORT.getContext('2d'), OD = oc.getImageData(0, 0, ORT.width, ORT.height).data;
+  const lum = (x, y) => { const k = 4*(Math.round(y)*ORT.width + Math.round(x)); return 0.3*OD[k] + 0.59*OD[k+1] + 0.11*OD[k+2]; };
+  // două fotografii pe aceeași bandă, la 3 declanșări distanță (60 % suprapunere aici, pentru claritate)
+  const IW = 137, IH = 91, CA = [300, 300], CB = [355, 302], ROT_B = 3*Math.PI/180, SC_B = 1.03;
+  // ortofotoplan (x, y metri; y în sus) -> pixel imagine (0..1) pentru fiecare cameră
+  const toImg = (C, rot, s) => (x, y) => { const dx = x - C[0], dy = y - C[1], c = Math.cos(rot), sn = Math.sin(rot);
+    const u = (dx*c + dy*sn)*s, v = (-dx*sn + dy*c)*s; return [0.5 + u/IW, 0.5 - v/IH]; };
+  const A = toImg(CA, 0, 1), B = toImg(CB, ROT_B, SC_B);
+  // puncte caracteristice: maxime ale gradientului în celule de 5 m
+  const KP = [];
+  for(let gx = CA[0] - IW/2 + 3; gx < CA[0] + IW/2 - 3; gx += 5) for(let gy = CA[1] - IH/2 + 3; gy < CA[1] + IH/2 - 3; gy += 5){
+    let best = 0, bx = 0, by = 0;
+    for(let i=0;i<5;i++) for(let j=0;j<5;j++){ const x = gx + i, y = gy + j, X = x, Y = T.H - y, g = Math.abs(lum(X + 1, Y) - lum(X - 1, Y)) + Math.abs(lum(X, Y + 1) - lum(X, Y - 1)); if(g > best){ best = g; bx = x; by = y; } }
+    KP.push({x:bx, y:by, g:best}); }
+  KP.sort((a, b) => b.g - a.g); const K = KP.slice(0, 260);
+  let sd = 3; const rnd = () => (sd = (sd*16807) % 2147483647)/2147483647;
+  K.forEach(k => { const b = B(k.x, k.y); k.inB = b[0] > 0.02 && b[0] < 0.98 && b[1] > 0.02 && b[1] < 0.98; k.bad = k.inB && rnd() < 0.13; if(k.bad){ k.fx = rnd(); k.fy = rnd(); } });
+  const M = K.filter(k => k.inB), good = M.filter(k => !k.bad).length, bad = M.length - good;
+  // desen
+  function photo(C, rot, s, x0, y0, w, h){ cx.save(); cx.beginPath(); cx.rect(x0, y0, w, h); cx.clip();
+    cx.translate(x0 + w/2, y0 + h/2); cx.scale(w/IW*s, h/IH*s); cx.rotate(rot); cx.drawImage(ORT, -C[0], -(T.H - C[1])); cx.restore();
+    cx.strokeStyle = '#fff'; cx.lineWidth = 3; cx.strokeRect(x0, y0, w, h); }
+  function scene(a, f, t){
+    const W = cv.clientWidth, Hh = cv.clientHeight, dpr = Math.min(2, devicePixelRatio || 1);
+    if(cv.width !== W*dpr){ cv.width = W*dpr; cv.height = Hh*dpr; } cx.setTransform(dpr, 0, 0, dpr, 0, 0); cx.clearRect(0, 0, W, Hh);
+    if(a === 3) return gcp(f, W, Hh);
+    const gap = 60, w = Math.min((W - gap)/2, (Hh - 40)*IW/IH), h = w*IH/IW, ax = (W - 2*w - gap)/2, ay = (Hh - h)/2 + 10, bx = ax + w + gap;
+    photo(CA, 0, 1, ax, ay, w, h); photo(CB, ROT_B, SC_B, bx, ay, w, h);
+    cx.fillStyle = '#fff'; cx.font = '600 18px Segoe UI'; cx.fillText('DSC_1041', ax, ay - 10); cx.fillText('DSC_1044', bx, ay - 10);
+    const kd = a === 0 ? seg(f, 0.1, 0.9, x=>x) : 1, nK = Math.floor(K.length*kd);
+    K.slice(0, nK).forEach(k => { const p = A(k.x, k.y); cx.strokeStyle = '#ffd84a'; cx.lineWidth = 1.6; cx.beginPath(); cx.arc(ax + p[0]*w, ay + p[1]*h, 5, 0, 7); cx.stroke();
+      if(k.inB){ const q = B(k.x, k.y); cx.beginPath(); cx.arc(bx + q[0]*w, ay + q[1]*h, 5, 0, 7); cx.stroke(); } });
+    if(a >= 1){ const km = a === 1 ? seg(f, 0.05, 0.85, x=>x) : 1, rej = a === 2 ? seg(f, 0.2, 0.6) : 0;
+      M.slice(0, Math.floor(M.length*km)).forEach(k => { const p = A(k.x, k.y), q = k.bad ? [k.fx, k.fy] : B(k.x, k.y);
+        if(k.bad && rej >= 1) return;
+        cx.strokeStyle = k.bad ? `rgba(255,70,70,${0.9*(1 - rej)})` : 'rgba(91,227,154,.55)'; cx.lineWidth = k.bad ? 2 : 1.1;
+        cx.beginPath(); cx.moveTo(ax + p[0]*w, ay + p[1]*h); cx.lineTo(bx + q[0]*w, ay + q[1]*h); cx.stroke(); }); }
+  }
+  // marcarea unui GCP în trei imagini: decupaje de 16 × 16 m la 24 px/m, ținta (0,6 m) aproape de centru
+  const G = {x:352, y:318}, ZM = 8, PXM = 40;
+  const CS = [[G.x - 1.6, G.y + 1.1], [G.x + 0.9, G.y - 1.4], [G.x + 1.7, G.y + 0.7]];
+  const PATCH = CS.map(C => T.ortoPatch(C[0] - ZM/2, C[1] - ZM/2, ZM, ZM, PXM));
+  const offs = [[-0.6, 0.4], [0.3, -0.55], [0.65, 0.25]];                    // eroarea estimării, în metri
+  function gcp(f, W, Hh){
+    const n = 3, gap = 30, w = Math.min((W - (n - 1)*gap)/n, Hh*0.75), h = w, y0 = (Hh - h)/2 - 10, x00 = (W - n*w - (n - 1)*gap)/2;
+    for(let i=0;i<n;i++){ const x0 = x00 + i*(w + gap), C = CS[i], m = w/ZM;
+      cx.drawImage(PATCH[i], x0, y0, w, h);
+      const tx = x0 + w/2 + (G.x - C[0])*m, ty = y0 + h/2 - (G.y - C[1])*m, s = 0.3*m;
+      cx.fillStyle = '#fff'; cx.fillRect(tx - s, ty - s, 2*s, 2*s); cx.fillStyle = '#111'; cx.fillRect(tx - s, ty - s, s, s); cx.fillRect(tx, ty, s, s);
+      cx.strokeStyle = '#fff'; cx.lineWidth = 3; cx.strokeRect(x0, y0, w, h);
+      cx.fillStyle = '#fff'; cx.font = '600 17px Segoe UI'; cx.fillText(['DSC_1038', 'DSC_1077', 'DSC_1112'][i] + ' — zoom pe GCP3', x0, y0 - 10);
+      const k = seg(f, 0.15 + i*0.18, 0.35 + i*0.18), ex = tx + offs[i][0]*m, ey = ty - offs[i][1]*m, mx = lerp(ex, tx, ease(k)), my = lerp(ey, ty, ease(k));
+      cx.strokeStyle = '#3fd0ff'; cx.lineWidth = 2.5; cx.setLineDash([6, 5]); cx.beginPath(); cx.arc(ex, ey, 0.45*m, 0, 7); cx.stroke(); cx.setLineDash([]);
+      cx.strokeStyle = k > 0.99 ? '#5be39a' : '#ffd84a'; cx.lineWidth = 3; cx.beginPath(); cx.moveTo(mx - 0.8*m, my); cx.lineTo(mx - 0.38*m, my); cx.moveTo(mx + 0.38*m, my); cx.lineTo(mx + 0.8*m, my);
+      cx.moveTo(mx, my - 0.8*m); cx.lineTo(mx, my - 0.38*m); cx.moveTo(mx, my + 0.38*m); cx.lineTo(mx, my + 0.8*m); cx.stroke();
+      if(k > 0.99){ cx.fillStyle = '#5be39a'; cx.font = '700 17px Segoe UI'; cx.fillText('marcat ✓', mx + 0.6*m, my - 0.6*m); } }
+    cx.fillStyle = '#cfd8e6'; cx.font = '17px Segoe UI'; cx.fillText('cerc albastru = unde estimează software-ul ținta (din poziția GNSS a dronei) · cruce = poziția marcată de operator', x00, y0 + h + 30);
+  }
+  const ST = [() => `Puncte caracteristice detectate: <b>${K.length}</b> (în realitate: zeci de mii pe imagine)`,
+              () => `Potriviri găsite: <b>${M.length}</b>`, () => `Potriviri bune: <b>${good}</b> · respinse: <b style="color:#ff8080">${bad}</b>`,
+              () => `GCP3 marcat în <b>3</b> imagini (în practică: în toate imaginile în care apare)`];
+  const T0 = [0, 6, 13, 19], DUR = [6, 7, 6, 13];
+  const clk = AnimUI.init({duration:32, loop:true, phases:[
+    {t:0, text:'În fiecare fotografie, software-ul caută <b>puncte caracteristice</b>: colțuri, pete, muchii — locuri ușor de recunoscut.'},
+    {t:6, text:'Același detaliu este găsit în imaginea vecină și se formează <b>perechi de puncte omoloage</b> (puncte de legătură).'},
+    {t:13, text:'Unele potriviri sunt greșite (roșu). Ele nu respectă geometria comună a celor două imagini și sunt <b>eliminate automat</b>.'},
+    {t:19, text:'<b>Punctele de control</b> (GCP) se marchează în imagini — software-ul arată unde ar trebui să fie, operatorul fixează centrul exact al țintei.'}]});
+  document.querySelectorAll('.opts button').forEach(b => b.onclick = () => clk.seek(T0[+b.dataset.s] + 0.01));
+  (function frame(){ const t = clk.update(), a = T0.reduce((acc, v, i) => t >= v ? i : acc, 0), f = (t - T0[a])/DUR[a];
+    document.querySelectorAll('.opts button').forEach(b => b.classList.toggle('on', +b.dataset.s === a));
+    document.getElementById('stat').innerHTML = ST[a](); scene(a, f, t); requestAnimationFrame(frame); })();
+})();
+</script>
+</body></html>

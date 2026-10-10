@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Originea sistemului Stereo 70</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/world-data.js"></script><script src="../lib/anim-ui.js"></script><script src="../lib/stereo70.js"></script>
+<style>
+  #sv{position:absolute;left:0;top:92px;width:66%;height:calc(100vh - 242px)}
+  #tab{right:20px;top:100px;width:calc(34% - 30px)}
+  #tab table{width:100%;font-variant-numeric:tabular-nums}
+  #tab td b{color:var(--gold)}
+  @media (max-width:900px){#sv{width:100%}#tab{display:none}}
+</style>
+</head><body>
+<div class="a-title">Sistemul de coordonate Stereo 70 — centrul și originea<small>Centrul proiecției: 46° N, 25° E (la nord de Făgăraș) · coordonatele lui: X = 500 000 m, Y = 500 000 m</small></div>
+<svg id="sv" viewBox="0 0 1000 760"></svg>
+<div class="a-panel" id="tab"><h4 id="th">Coordonate față de centrul proiecției</h4><table id="tt"></table>
+  <div id="nt" style="margin-top:10px;color:var(--muted);font-size:.9em"></div></div>
+<script>
+(function(){
+  const {seg, ease, lerp} = AnimUI, S = window.Stereo70;
+  const ring = (ROMANIA.type === 'Polygon' ? [ROMANIA.coordinates] : ROMANIA.coordinates).map(p => p[0]).sort((a,b)=>b.length-a.length)[0].map(p => S.forward(p[1], p[0]));
+  const C = [['Timișoara',45.7489,21.2087],['Cluj-Napoca',46.7712,23.6236],['Iași',47.1585,27.6014],['București',44.4268,26.1025],['Constanța',44.1733,28.6593]].map(([n,a,b]) => Object.assign({n}, S.forward(a, b)));
+  // fereastra: E -60..980 km, N -60..880 km
+  const sc = 0.74, ox = 70, oy = 700;
+  const X = e => ox + (e/1000 + 0)*sc, Y = n => oy - (n/1000)*sc;
+  const sv = document.getElementById('sv'), tt = document.getElementById('tt');
+  const km = v => (v/1000).toLocaleString('ro-RO', {maximumFractionDigits:1, minimumFractionDigits:1});
+  const m0 = v => Math.round(v).toLocaleString('ro-RO');
+
+  function draw(t){
+    const kR = seg(t, 0.2, 2.5), kS = seg(t, 6, 11);           // kS: translatia originii
+    const off = 500000*kS;                                        // cat s-a adaugat la coordonate
+    const cx = X(500000), cy = Y(500000);
+    const axX = lerp(cx, X(0), kS), axY = lerp(cy, Y(0), kS);     // pozitia axelor (originea curenta)
+    let h = `<defs><marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#ff6262"/></marker>
+      <pattern id="hat" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="10" stroke="#ff6262" stroke-width="1" opacity=".25"/></pattern></defs>`;
+    // grila 100 km, etichete in coordonatele curente
+    for(let e=0; e<=900000; e+=100000) h += `<line x1="${X(e)}" y1="${Y(850000)}" x2="${X(e)}" y2="${Y(0)}" stroke="#22355a"/><text x="${X(e)}" y="${Y(0)+24}" fill="#b4c0d4" font-size="15" text-anchor="middle">${m0((e - 500000 + off)/1000)}</text>`;
+    for(let n=0; n<=850000; n+=100000) h += `<line x1="${X(0)}" y1="${Y(n)}" x2="${X(900000)}" y2="${Y(n)}" stroke="#22355a"/><text x="${X(0)-8}" y="${Y(n)+5}" fill="#b4c0d4" font-size="15" text-anchor="end">${m0((n - 500000 + off)/1000)}</text>`;
+    h += `<text x="${X(900000)}" y="${Y(0)+46}" fill="#b4c0d4" font-size="15" text-anchor="end">Y [km]</text><text x="${X(0)-8}" y="${Y(850000)-12}" fill="#b4c0d4" font-size="15" text-anchor="end">X [km]</text>`;
+    // zona cu coordonate negative (inainte de translatie)
+    if(kS < 1) h += `<path d="M${X(0)} ${Y(500000)} H${X(500000)} V${Y(0)} H${X(0)}Z M${X(500000)} ${Y(500000)} V${Y(850000)} H${X(0)} V${Y(500000)}Z M${X(500000)} ${Y(500000)} H${X(900000)} V${Y(0)} H${X(500000)}Z" fill="url(#hat)" opacity="${(1-kS)*seg(t, 3, 4.5)}"/>`;
+    // Romania
+    h += `<path d="${ring.map((p,i) => (i?'L':'M') + X(p.E).toFixed(1) + ' ' + Y(p.N).toFixed(1)).join(' ')}Z" fill="rgba(255,201,64,.14)" stroke="#ffc940" stroke-width="2.5" opacity="${kR}"/>`;
+    // axele
+    h += `<line x1="${axX}" y1="${Y(-30000) + (Y(0) - Y(-30000))*0}" x2="${axX}" y2="${Y(860000)}" stroke="#ff6262" stroke-width="3" marker-end="url(#ah)"/>
+      <line x1="${X(-40000)}" y1="${axY}" x2="${X(930000)}" y2="${axY}" stroke="#ff6262" stroke-width="3" marker-end="url(#ah)"/>
+      <text x="${axX+10}" y="${Y(845000)}" fill="#ff6262" font-size="22" font-weight="700">X (Nord)</text>
+      <text x="${X(925000)}" y="${axY-10}" fill="#ff6262" font-size="22" font-weight="700" text-anchor="end">Y (Est)</text>
+      <circle cx="${axX}" cy="${axY}" r="8" fill="#ff6262"/>
+      <text x="${axX+12}" y="${axY+26}" fill="#ff8a8a" font-size="18">${kS < 0.5 ? 'O (0 ; 0) = centrul proiecției' : 'O (0 ; 0) — originea „falsă"'}</text>`;
+    // centrul proiectiei
+    h += `<circle cx="${cx}" cy="${cy}" r="9" fill="#fff" stroke="#3fd0ff" stroke-width="3"/>`;
+    if(kS > 0.98) h += `<text x="${cx+14}" y="${cy-14}" fill="#fff" font-size="19" font-weight="700">500 000 ; 500 000</text>
+       <path d="M${X(0)} ${Y(0)} L${cx} ${Y(0)}" stroke="#3fd0ff" stroke-width="2" stroke-dasharray="6 5"/><text x="${(X(0)+cx)/2}" y="${Y(0)-10}" fill="#3fd0ff" font-size="17" text-anchor="middle">500 km</text>
+       <path d="M${X(0)} ${Y(0)} L${X(0)} ${cy}" stroke="#3fd0ff" stroke-width="2" stroke-dasharray="6 5"/><text x="${X(0)+10}" y="${(Y(0)+cy)/2}" fill="#3fd0ff" font-size="17">500 km</text>`;
+    // orase
+    const kC = seg(t, 2.5, 4);
+    C.forEach(c => { h += `<circle cx="${X(c.E)}" cy="${Y(c.N)}" r="5" fill="#fff" opacity="${kC}"/><text x="${X(c.E)+8}" y="${Y(c.N)-8}" fill="#e8eef8" font-size="16" opacity="${kC}">${c.n}</text>`; });
+    sv.innerHTML = h;
+    // tabel
+    document.getElementById('th').textContent = kS < 0.5 ? 'Coordonate față de centrul proiecției' : 'Coordonate Stereo 70 (după translație)';
+    tt.innerHTML = '<tr><th>Punct</th><th>X [m]</th><th>Y [m]</th></tr>' + C.map(c => { const x = c.N - 500000 + off, y = c.E - 500000 + off;
+      return `<tr><td>${c.n}</td><td style="color:${x < 0 ? '#ff8a8a' : '#e8eef8'}">${m0(x)}</td><td style="color:${y < 0 ? '#ff8a8a' : '#e8eef8'}">${m0(y)}</td></tr>`; }).join('');
+    document.getElementById('nt').innerHTML = kS < 0.5 ? 'Fără translație, jumătate din țară ar avea coordonate <b style="color:#ff8a8a">negative</b> — sursă sigură de erori.'
+      : 'Se adaugă <b>500 000 m</b> la ambele coordonate („false easting / false northing"): toate valorile din țară sunt <b>pozitive</b>.<br><br><b>Corectură:</b> centrul Stereo 70 nu este Dealul Piscului. Dealul Piscului este punctul fundamental al datumului din 1930; numele a fost folosit și pentru datumul „Dealul Piscului 1970", înlocuit în registrul EPSG de Pulkovo 1942(58) — datumul din EPSG:3844.';
+  }
+  const clk = AnimUI.init({duration:22, loop:true, phases:[
+    {t:0, text:'Planul de proiecție are originea naturală în <b>centrul proiecției</b> (46° N, 25° E) — la nord de Făgăraș, aproape de centrul geometric al țării.'},
+    {t:3, text:'Față de acest centru, punctele din vest și din sud ar avea coordonate <b>negative</b> (zonele hașurate).'},
+    {t:6, text:'Soluția: o <b>translație</b> a axelor cu 500 km spre vest și 500 km spre sud — echivalent cu adunarea a 500 000 m la X și la Y.'},
+    {t:11.5, text:'Centrul proiecției primește coordonatele <b>X = 500 000 m, Y = 500 000 m</b>; toate punctele din România au acum coordonate pozitive.'}]});
+  let lt = -1;
+  (function frame(){ const t = clk.update(); if(Math.abs(t - lt) > 0.015){ lt = t; draw(t); } requestAnimationFrame(frame); })();
+})();
+</script>
+</body></html>

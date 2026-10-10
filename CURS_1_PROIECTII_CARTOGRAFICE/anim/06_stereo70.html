@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cum se realizează proiecția Stereo 70</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/three.min.js"></script><script src="../lib/OrbitControls.js"></script><script src="../lib/topojson-client.min.js"></script>
+<script src="../lib/world-data.js"></script><script src="../lib/earth-tex.js"></script>
+<script src="../lib/anim-ui.js"></script><script src="../lib/globe.js"></script><script src="../lib/lumina.js"></script><script src="../lib/stereo70.js"></script>
+<style>
+  .ov{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;transition:opacity .5s}
+  .ov svg{width:min(1500px,96vw);height:calc(100vh - 230px);margin-top:20px}
+  .ov text{font-family:var(--font)}
+</style>
+</head><body><div id="stage"></div>
+<div class="ov" id="ovB" style="opacity:0"><svg id="svgB" viewBox="0 0 1500 760"></svg></div>
+<div class="ov" id="ovC" style="opacity:0"><svg id="svgC" viewBox="0 0 1500 760"></svg></div>
+<div class="a-title">Cum se realizează proiecția Stereo 70<small>Stereografică oblică, plan secant · centru φ₀ = 46° N, λ₀ = 25° E · elipsoid Krasovski 1940</small></div>
+<div class="opts">
+  <button data-s="0" class="on">1 · Razele din antipod</button>
+  <button data-s="1">2 · Planul secant</button>
+  <button data-s="2">3 · Rezultatul în plan</button>
+</div>
+<script>
+(function(){
+  const {seg, lerp, ease} = AnimUI, D2R = Math.PI/180;
+  // ---------------- Actul 1 : 3D, geometrie reala ----------------
+  const kit = GlobeKit.create(document.getElementById('stage'), {camZ:6});
+  const G = GlobeKit.morphGlobe(kit, {graticule:15, step:2});
+  G.group.rotation.set((46 - 90)*D2R, -25*D2R, 0, 'XYZ'); G.group.updateMatrix();
+  const toFrame = new THREE.Matrix3().setFromMatrix4(G.group.matrix), toGeo = toFrame.clone().invert();
+  const glow = GlobeKit.glow(kit, 1);
+  G.meshes.forEach(m => { m.material.opacity = 0.62; m.material.depthWrite = false; });
+  const plane = Lumina.makeSheet({type:'plane', y:1, rmax:0.34}, GlobeKit.earthTexture(), toGeo);
+  plane.material.uniforms.mode.value = 1; plane.material.uniforms.lightPos.value.set(0,-1,0); plane.renderOrder = 3; kit.root.add(plane);
+  const bulb = Lumina.bulb(kit.root); bulb.position.set(0,-1,0); bulb.scale.setScalar(1.6);
+
+  // conturul Romaniei: pe glob si pe plan
+  const ro = (window.ROMANIA.type === 'Polygon' ? [window.ROMANIA.coordinates] : window.ROMANIA.coordinates).map(p => p[0]).sort((a,b)=>b.length-a.length)[0];
+  const L = new THREE.Vector3(0,-1,0);
+  const roG = [], roP = [];
+  ro.forEach(p => { const g = Lumina.geoToFrame(p[0], p[1], toFrame); roG.push(g.clone().multiplyScalar(1.0015)); roP.push(Lumina.hitSheet(plane.userData.sh, 1, L, g).add(new THREE.Vector3(0,0.0008,0))); });
+  const lineOf = (pts, col) => { const g = new THREE.BufferGeometry().setFromPoints(pts); const l = new THREE.Line(g, new THREE.LineBasicMaterial({color:col, transparent:true})); kit.root.add(l); return l; };
+  const roGL = lineOf(roG, 0xffc940), roPL = lineOf(roP, 0xffc940);
+  const R = Lumina.rays(kit.root, 60);
+  const rayIdx = []; for(let i=0;i<60;i++) rayIdx.push(Math.floor(i*ro.length/60));
+
+  // ---------------- Actul 2 : sectiune (SVG) ----------------
+  const svgB = document.getElementById('svgB');
+  function actB(k){            // k: 0 plan tangent -> 1 plan secant
+    const W = 1500, cx = 750, R0 = 900, cy = 120 + R0;            // arc foarte mare: zona Romaniei, exagerat pe verticala
+    const ex = 230;                                                  // exagerare: 1 - k0 => ~ 0,25 m/km devine vizibil
+    const yPlane = 120 + k*60;
+    const xCut = Math.sqrt(Math.max(0, R0*R0 - (cy - yPlane)*(cy - yPlane)));
+    let h = `<defs><linearGradient id="gs" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2a5db0" stop-opacity=".55"/><stop offset="1" stop-color="#0b1426" stop-opacity="0"/></linearGradient></defs>
+      <path d="M ${cx-720} ${cy - Math.sqrt(R0*R0-720*720)} A ${R0} ${R0} 0 0 1 ${cx+720} ${cy - Math.sqrt(R0*R0-720*720)} L ${cx+720} 760 L ${cx-720} 760 Z" fill="url(#gs)" stroke="#9fc6ff" stroke-width="3"/>
+      <text x="${cx-470}" y="${cy - Math.sqrt(R0*R0-470*470) + 48}" fill="#9fc6ff" font-size="22">suprafața de referință (sfera Gauss, R ≈ 6 379 km)</text>
+      <line x1="40" y1="${yPlane}" x2="1460" y2="${yPlane}" stroke="#ffc940" stroke-width="4"/>
+      <text x="1450" y="${yPlane-14}" fill="#ffc940" font-size="26" text-anchor="end">${k < 0.5 ? 'plan tangent' : 'plan secant'}</text>
+      <circle cx="${cx}" cy="120" r="7" fill="#fff"/><text x="${cx}" y="98" fill="#fff" font-size="22" text-anchor="middle">centrul proiecției (46° N, 25° E)</text>`;
+    if(k > 0.05){
+      h += `<line x1="${cx}" y1="120" x2="${cx}" y2="${yPlane}" stroke="#ff6262" stroke-width="3"/>
+        <text x="${cx+14}" y="${(120+yPlane)/2+8}" fill="#ff6262" font-size="22">planul coborât: k₀ = 0,99975</text>`;
+    }
+    if(k > 0.6){
+      const a = ease((k-0.6)/0.4);
+      [-1,1].forEach(sd => { h += `<circle cx="${cx+sd*xCut}" cy="${yPlane}" r="${10*a}" fill="#5be39a"/>`; });
+      h += `<path d="M ${cx-xCut} ${yPlane+36} L ${cx+xCut} ${yPlane+36}" stroke="#5be39a" stroke-width="2" stroke-dasharray="8 6" opacity="${a}"/>
+        <text x="${cx}" y="${yPlane+70}" fill="#5be39a" font-size="26" text-anchor="middle" opacity="${a}">cercul de deformație nulă — rază 201,7 km în plan</text>`;
+      // bare de deformatie
+      const S7 = window.Stereo70, bars = [0, 0.5, 1, 1.45, 1.9].map(f => { const d = S7.deformMkm(500000 + f*S7.zeroRadius, 500000);
+        return [f, (Math.abs(d) < 0.005 ? '0' : (d > 0 ? '+' : '−') + Math.abs(d).toFixed(2).replace('.', ','))]; });
+      bars.forEach(([f,lbl]) => [-1,1].forEach(sd => {
+        if(f === 0 && sd > 0) return;
+        const x = cx + sd*f*xCut, d = S7.deformMkm(500000 + f*S7.zeroRadius, 500000), y0 = 520, hh = -d*190*a;
+        h += `<rect x="${x-16}" y="${Math.min(y0, y0+hh)}" width="32" height="${Math.abs(hh)}" fill="${d<0?'#3fd0ff':'#ff9d3c'}" opacity=".9"/>
+          <text x="${x}" y="${d<0? y0+hh+28 : y0+hh-10}" fill="#fff" font-size="20" text-anchor="middle" opacity="${a}">${lbl}</text>`;
+      }));
+      h += `<line x1="90" y1="520" x2="1410" y2="520" stroke="#b4c0d4" stroke-width="1.5" opacity="${a}"/>
+        <text x="40" y="526" fill="#b4c0d4" font-size="20" opacity="${a}">m/km</text>`;
+    }
+    svgB.innerHTML = h;
+  }
+
+  // ---------------- Actul 3 : planul Stereo 70 (SVG) ----------------
+  const svgC = document.getElementById('svgC'), S70 = window.Stereo70;
+  const roXY = ro.map(p => S70.forward(p[1], p[0]));
+  const sc = 0.78/1000, ox = 750 - 500000*sc, oy = 385 + 500000*sc;         // 1 px = 1,28 km
+  const X = e => ox + e*sc, Y = n => oy - n*sc;
+  const orase = [['București',44.4268,26.1025],['Cluj-Napoca',46.7712,23.6236],['Iași',47.1585,27.6014],['Timișoara',45.7489,21.2087],['Constanța',44.1733,28.6593],['Brașov',45.6427,25.5887],['Craiova',44.3302,23.7949],['Suceava',47.6514,26.2556],['Oradea',47.0465,21.9189]];
+  let maxD = -1, maxAt = null; roXY.forEach(p => { const d = S70.deformMkm(p.N, p.E); if(d > maxD){ maxD = d; maxAt = p; } });
+  function actC(k){
+    let h = '';
+    for(let e=100000; e<=900000; e+=100000) h += `<line x1="${X(e)}" y1="${Y(800000)}" x2="${X(e)}" y2="${Y(200000)}" stroke="#2a3d63" stroke-width="1.2"/><text x="${X(e)}" y="${Y(200000)+26}" fill="#b4c0d4" font-size="17" text-anchor="middle">${e/1000}k</text>`;
+    for(let n=200000; n<=800000; n+=100000) h += `<line x1="${X(100000)}" y1="${Y(n)}" x2="${X(900000)}" y2="${Y(n)}" stroke="#2a3d63" stroke-width="1.2"/><text x="${X(100000)-10}" y="${Y(n)+6}" fill="#b4c0d4" font-size="17" text-anchor="end">${n/1000}k</text>`;
+    const pth = roXY.map((p,i) => (i?'L':'M') + X(p.E).toFixed(1) + ' ' + Y(p.N).toFixed(1)).join(' ') + 'Z';
+    h += `<path d="${pth}" fill="rgba(255,201,64,.12)" stroke="#ffc940" stroke-width="3"/>`;
+    const r = S70.zeroRadius*sc*ease(k);
+    h += `<circle cx="${X(500000)}" cy="${Y(500000)}" r="${r}" fill="rgba(63,208,255,.10)" stroke="#5be39a" stroke-width="3" stroke-dasharray="10 6"/>`;
+    h += `<line x1="${X(500000)}" y1="${Y(820000)}" x2="${X(500000)}" y2="${Y(180000)}" stroke="#ff6262" stroke-width="2.5"/>
+      <line x1="${X(80000)}" y1="${Y(500000)}" x2="${X(920000)}" y2="${Y(500000)}" stroke="#ff6262" stroke-width="2.5"/>
+      <text x="${X(500000)+10}" y="${Y(812000)}" fill="#ff6262" font-size="24" font-weight="700">X (Nord)</text>
+      <text x="${X(918000)}" y="${Y(500000)-12}" fill="#ff6262" font-size="24" font-weight="700" text-anchor="end">Y (Est)</text>
+      <circle cx="${X(500000)}" cy="${Y(500000)}" r="7" fill="#fff"/>
+      <text x="${X(500000)-12}" y="${Y(500000)+28}" fill="#fff" font-size="18" text-anchor="end">500 000 ; 500 000</text>`;
+    if(k > 0.5){
+      const a = Math.min(1, (k-0.5)*3);
+      h += `<g opacity="${a}" transform="translate(1080,40)"><rect width="390" height="150" rx="12" fill="rgba(12,20,38,.9)" stroke="rgba(140,170,220,.3)"/>
+          <line x1="20" y1="34" x2="70" y2="34" stroke="#5be39a" stroke-width="3" stroke-dasharray="10 6"/><text x="84" y="40" fill="#5be39a" font-size="19">deformație 0 · r = 201,7 km</text>
+          <circle cx="45" cy="74" r="7" fill="#fff"/><text x="84" y="80" fill="#3fd0ff" font-size="19">centru: −0,25 m/km</text>
+          <circle cx="45" cy="114" r="7" fill="#ff9d3c"/><text x="84" y="120" fill="#ff9d3c" font-size="19">maxim pe contur: +${maxD.toFixed(2).replace('.',',')} m/km</text></g>
+        <circle cx="${X(maxAt.E)}" cy="${Y(maxAt.N)}" r="7" fill="#ff9d3c" opacity="${a}"/>
+        <text x="${X(maxAt.E)+12}" y="${Y(maxAt.N)+6}" fill="#ff9d3c" font-size="19" opacity="${a}">+${maxD.toFixed(2).replace('.',',')} m/km</text>`;
+      orase.forEach(([nm,la,lo]) => { const p = S70.forward(la, lo);
+        h += `<circle cx="${X(p.E)}" cy="${Y(p.N)}" r="4.5" fill="#fff" opacity="${a}"/><text x="${X(p.E)+8}" y="${Y(p.N)-6}" fill="#e8eef8" font-size="16" opacity="${a}">${nm}</text>`; });
+    }
+    svgC.innerHTML = h;
+  }
+
+  const phases = [
+    {t:0,  text:'Centrul proiecției: punctul de coordonate <b>46° N, 25° E</b>, lângă Făgăraș, ales aproape de centrul țării. Planul de proiecție este tangent acolo.'},
+    {t:3,  text:'Sursa razelor („polul de proiecție") stă în <b>punctul diametral opus</b> — în Pacificul de Sud, la 46° S, 155° W.'},
+    {t:9,  text:'Fiecare rază trece printr-un punct al României și îl duce pe plan: <b>proiecția stereografică este conformă</b> — formele se păstrează.'},
+    {t:16, text:'Cu plan tangent, scara e exactă doar în centru și crește spre margini. Stereo 70 <b>coboară planul</b> (k₀ = 0,99975) ca să distribuie deformările.'},
+    {t:22, text:'Planul secant taie sfera după un cerc pe care <b>scara este exactă</b>: în plan, raza lui este 201,7 km. În interior lungimile scad (până la −25 cm/km), în afară cresc.'},
+    {t:30, text:'Rezultatul: sistemul plan <b>X (Nord), Y (Est)</b>, cu centrul proiecției la X = Y = 500 000 m — toate coordonatele din țară sunt pozitive.'},
+    {t:36, text:`Deformația maximă apare la extremități (≈ <b>+${maxD.toFixed(2).replace('.',',')} m/km</b>). Pentru lucrări de precizie, distanțele măsurate se <b>reduc la planul de proiecție</b>.`}];
+  const clk = AnimUI.init({duration:44, loop:true, phases, onSeek:()=>{ manual = false; controls.enabled = false; }});
+  document.querySelectorAll('.opts button').forEach(b => b.onclick = () => clk.seek([0,16,30][+b.dataset.s] + 0.01));
+  const controls = new THREE.OrbitControls(kit.camera, kit.renderer.domElement); controls.enabled = false; let manual = false;
+  const look = new THREE.Vector3();
+  kit.renderer.domElement.addEventListener('pointerdown', () => { if(!manual){ manual = true; controls.enabled = true; controls.target.copy(look); } });
+
+  const V = (x,y,z) => new THREE.Vector3(x,y,z);
+  let lastB = -1, lastC = -1;
+  function frame(){
+    const t = clk.update();
+    const act = t < 16 ? 0 : t < 30 ? 1 : 2;
+    document.querySelectorAll('.opts button').forEach(b => b.classList.toggle('on', +b.dataset.s === act));
+    // act 1
+    const ray = seg(t, 3.5, 9, x=>x), zoom = seg(t, 9, 14.5);
+    const stageA = 1 - seg(t, 15, 16.5) + seg(t, 43, 44);
+    kit.renderer.domElement.style.opacity = Math.max(0.12, Math.min(1, stageA));
+    bulb.setOn(seg(t, 2.5, 3.5));
+    plane.material.uniforms.reveal.value = seg(t, 5, 12, x=>x)*1.03 - 0.01;
+    const pos = R.geometry.attributes.position, n = Math.floor(60*ray);
+    for(let i=0;i<60;i++){
+      if(i < n){ const p = ro[rayIdx[i]], g = Lumina.geoToFrame(p[0], p[1], toFrame), h = roP[rayIdx[i]];
+        pos.setXYZ(2*i, 0,-1,0); pos.setXYZ(2*i+1, h.x,h.y,h.z); }
+      else { pos.setXYZ(2*i,0,0,0); pos.setXYZ(2*i+1,0,0,0); }
+    }
+    pos.needsUpdate = true; R.material.opacity = 0.55*(1 - 0.6*zoom);
+    roPL.material.opacity = seg(t, 8, 10);
+    if(!manual){
+      const p0 = V(5.2, 0.3, 2.2), p1 = V(0.42, 1.38, 0.36);
+      kit.camera.position.copy(p0.lerp(p1, zoom)); look.copy(V(0,0.1,0).lerp(V(0,1,0), zoom)); kit.camera.up.set(0,1,0); kit.camera.lookAt(look);
+    } else controls.update();
+    glow.material.opacity = 1 - zoom;
+    // act 2 si 3
+    const oB = seg(t, 16, 17) * (1 - seg(t, 29, 30)), oC = seg(t, 30, 31) * (1 - seg(t, 43, 44));
+    document.getElementById('ovB').style.opacity = oB; document.getElementById('ovC').style.opacity = oC;
+    const kB = Math.round(seg(t, 18, 26)*60)/60; if(oB > 0 && kB !== lastB){ lastB = kB; actB(kB); }
+    const kC = Math.round(seg(t, 31, 37)*60)/60; if(oC > 0 && kC !== lastC){ lastC = kC; actC(kC); }
+    kit.render(); requestAnimationFrame(frame);
+  }
+  frame();
+})();
+</script>
+</body></html>

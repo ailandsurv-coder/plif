@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>De la DSM la DTM</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/anim-ui.js"></script><script src="../lib/teren.js"></script>
+<style>
+  #sv{position:absolute;left:16px;right:16px;top:150px;height:calc(100vh - 300px)}#sv svg{width:100%;height:100%}
+  #swipe{position:absolute;left:16px;right:16px;top:150px;height:calc(100vh - 300px);display:none}
+  #swipe .w{position:absolute;inset:0;display:flex;justify-content:center}
+  #swipe canvas{height:100%;border-radius:8px}
+  #swipe .bar{position:absolute;top:0;bottom:0;width:4px;background:#ffc940;cursor:ew-resize}
+  #swipe .lab{position:absolute;top:10px;font-weight:700;font-size:18px;background:rgba(0,0,0,.6);padding:4px 10px;border-radius:6px}
+</style>
+</head><body>
+<div class="a-title">Pasul 6 — De la DSM la DTM: clasificarea punctelor de sol<small>Norul dens descrie suprafața (DSM) · algoritmul de filtrare păstrează doar solul · DTM = terenul natural, bun pentru proiectare</small></div>
+<div class="opts" style="flex-direction:row;top:100px;left:20px;right:auto"><button data-s="0" class="on">1 · DSM</button><button data-s="1">2 · Puncte inițiale</button><button data-s="2">3 · Densificare</button><button data-s="3">4 · Clasificare</button><button data-s="4">5 · DSM ↔ DTM</button></div>
+<div id="sv"><svg id="svg" viewBox="0 0 1500 640"></svg></div>
+<div id="swipe"><div class="w"><canvas id="cB"></canvas></div><div class="w" id="wA" style="clip-path:inset(0 50% 0 0)"><canvas id="cA"></canvas></div><div class="bar" id="bar"></div>
+  <div class="lab" id="lA">DSM — suprafața</div><div class="lab" id="lB">DTM — terenul</div></div>
+<script>
+(function(){
+  const {seg, lerp, ease} = AnimUI, T = window.TEREN, svg = document.getElementById('svg');
+  // secțiune nord–sud la x = 650: sat, râu cu arbori, câmp, canal cu diguri
+  const XS = 732, YA = 20, YB = 420, P = [];
+  let sd = 4; const rnd = () => (sd = (sd*16807) % 2147483647)/2147483647;
+  for(let y = YA; y <= YB; y += 0.5){ const z = T.surface(XS, y) + (rnd() - 0.5)*0.08, c = T.cls(XS, y); P.push({y, z, g:T.ground(XS, y), c, gr:false}); }
+  // densificarea progresivă a rețelei de triunghiuri (1D): semințe = punctul cel mai jos din celule de 40 m
+  const CELL = 40, MAXD = 0.5, MAXA = 30*Math.PI/180, iters = [];
+  for(let y0 = YA; y0 < YB; y0 += CELL){ let best = null; P.forEach(p => { if(p.y >= y0 && p.y < y0 + CELL && (!best || p.z < best.z)) best = p; }); if(best) best.gr = true; }
+  iters.push(P.filter(p => p.gr).map(p => p.y));
+  const interp = (G, y) => { let a = null, b = null; for(const p of G){ if(p.y <= y) a = p; if(p.y >= y){ b = p; break; } } if(!a) return {z:b.z, d:b.y - y}; if(!b) return {z:a.z, d:y - a.y};
+    const k = b.y === a.y ? 0 : (y - a.y)/(b.y - a.y); return {z:a.z + (b.z - a.z)*k, d:Math.min(y - a.y, b.y - y)}; };
+  for(let it=0; it<8; it++){ const G = P.filter(p => p.gr); let add = 0;
+    P.forEach(p => { if(p.gr) return; const q = interp(G, p.y), dz = p.z - q.z; if(Math.abs(dz) < MAXD && Math.atan2(Math.abs(dz), Math.max(0.5, q.d)) < MAXA){ p.gnew = true; add++; } });
+    P.forEach(p => { if(p.gnew){ p.gr = true; p.gnew = false; } }); iters.push(P.filter(p => p.gr).map(p => p.y)); if(!add) break; }
+  const finalG = P.filter(p => p.gr);
+  const zmin = Math.min(...P.map(p => p.z)) - 1, zmax = Math.max(...P.map(p => p.z)) + 1;
+  const PXM = 1420/(YB - YA), X = y => 40 + (y - YA)*PXM, Y = z => 540 - (z - zmin)*PXM*3;            // exagerare verticală ×3
+  const line = ys => { const G = P.filter(p => ys.includes(p.y)); return G.map((p, i) => (i ? 'L' : 'M') + X(p.y).toFixed(1) + ' ' + Y(p.z).toFixed(1)).join(' '); };
+  function draw(a, f){
+    let h = `<line x1="40" y1="580" x2="1460" y2="580" stroke="#2f4566"/><text x="40" y="606" fill="#8a98b4" font-size="15">sud ← secțiune N–S prin sat, râu cu arbori, câmp și canal (x = ${XS} m) → nord · exagerare verticală ×3</text>`;
+    for(let y = 50; y <= YB; y += 50) h += `<text x="${X(y)}" y="${578 - 6}" fill="#55607a" font-size="12" text-anchor="middle">${y}</text>`;
+    const stage = a;
+    // punctele
+    const nIt = stage === 2 ? Math.min(iters.length - 1, Math.floor(seg(f, 0.05, 0.9, x=>x)*(iters.length - 1)) + 1) : stage >= 3 ? iters.length - 1 : 0;
+    const grSet = new Set(stage >= 1 ? iters[nIt] : []);
+    P.forEach(p => { let c = '#cfd8e6';
+      if(stage >= 1 && grSet.has(p.y)) c = '#c9883a';
+      if(stage >= 3 && !p.gr) c = p.c === 6 ? '#ff5a3c' : p.c === 5 ? '#3fbf55' : p.c === 9 ? '#4aa3ff' : '#cfd8e6';
+      const r = stage === 1 && iters[0].includes(p.y) ? 6 : 2.2; h += `<circle cx="${X(p.y).toFixed(1)}" cy="${Y(p.z).toFixed(1)}" r="${r}" fill="${c}"/>`; });
+    if(stage === 1){ for(let y0 = YA; y0 <= YB; y0 += CELL) h += `<line x1="${X(y0)}" y1="70" x2="${X(y0)}" y2="580" stroke="#ffc940" stroke-width="1" stroke-dasharray="4 6" opacity=".6"/>`;
+      h += `<path d="${line(iters[0])}" fill="none" stroke="#ffc940" stroke-width="2.5" opacity="${seg(f, 0.4, 0.7)}"/>`; }
+    if(stage === 2) h += `<path d="${line(iters[nIt])}" fill="none" stroke="#ffc940" stroke-width="2.5"/>`;
+    if(stage >= 3){ // DTM final + zona interpolată sub arbori
+      h += `<path d="${line(iters[iters.length - 1])}" fill="none" stroke="#c9883a" stroke-width="3.5"/>`;
+      // goluri mari între punctele de sol = interpolare
+      let lab = false;
+      for(let i=1;i<finalG.length;i++){ const g0 = finalG[i-1], g1 = finalG[i]; if(g1.y - g0.y > 4){ const mid = P.filter(p => p.y > g0.y && p.y < g1.y), veg = mid.filter(p => p.c === 5).length >= mid.length/2;
+          h += `<line x1="${X(g0.y)}" y1="${Y(g0.z)}" x2="${X(g1.y)}" y2="${Y(g1.z)}" stroke="${veg ? '#ffd84a' : '#ff9d3c'}" stroke-width="5" stroke-dasharray="6 5"/>`;
+          if(veg && !lab && g1.y - g0.y > 8){ lab = true; h += `<text x="${(X(g0.y) + X(g1.y))/2}" y="${Y(Math.min(g0.z, g1.z)) + 34}" fill="#ffd84a" font-size="16" text-anchor="middle">- - - sub coronament: fără puncte de sol → DTM interpolat</text>`; } } }
+      const miss = P.filter(p => !p.gr && p.c === 2);              // sol real, respins de filtru (taluz abrupt)
+      if(miss.length){ const m = miss[Math.floor(miss.length/2)]; h += `<text x="${X(m.y)}" y="${Y(m.z) - 26}" fill="#cfd8e6" font-size="15" text-anchor="middle">taluz respins de filtru → se corectează manual</text>`; }
+      const kL = seg(f, 0.3, 0.7);
+      h += `<g opacity="${kL}" transform="translate(40,70)"><rect width="430" height="118" rx="10" fill="rgba(12,20,38,.92)" stroke="rgba(140,170,220,.35)"/>
+        ${[['#c9883a','sol (DTM)'],['#3fbf55','vegetație'],['#ff5a3c','clădiri'],['#4aa3ff','apă'],['#cfd8e6','alte puncte']].map(([c, t], i) => `<circle cx="${22 + (i % 2)*210}" cy="${24 + Math.floor(i/2)*30}" r="7" fill="${c}"/><text x="${36 + (i % 2)*210}" y="${30 + Math.floor(i/2)*30}" fill="#e8eef8" font-size="16">${t}</text>`).join('')}</g>`; }
+    if(stage === 0) h += `<text x="40" y="60" fill="#fff" font-size="22">Norul dens = <tspan fill="#ffc940" font-weight="700">DSM</tspan>: acoperișuri, coronamentul arborilor, apa, solul — toate amestecate.</text>`;
+    if(stage === 1) h += `<text x="40" y="60" fill="#fff" font-size="22">Pas 1: în fiecare celulă de ${CELL} m se alege <tspan fill="#ffc940" font-weight="700">punctul cel mai jos</tspan> — sigur pe sol.</text>`;
+    if(stage === 2) h += `<text x="40" y="60" fill="#fff" font-size="22">Pas 2, iterația ${nIt}: se adaugă punctele aflate la cel mult <tspan fill="#ffc940" font-weight="700">${MAXD.toString().replace('.', ',')} m</tspan> și <tspan fill="#ffc940" font-weight="700">30°</tspan> de suprafața curentă.</text>`;
+    if(stage === 3) h += `<text x="500" y="60" fill="#fff" font-size="22">Rezultat: puncte de <tspan fill="#c9883a" font-weight="700">sol</tspan> → DTM; restul se clasifică pe categorii.</text>`;
+    svg.innerHTML = h;
+  }
+  // ---------- comparația DSM ↔ DTM (vedere de sus, umbrire)
+  function shade(fn, w, h, s){ const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d'), id = x.createImageData(w, h);
+    for(let j=0;j<h;j++) for(let i=0;i<w;i++){ const X0 = i*s, Y0 = T.H - j*s, z = fn(X0, Y0), d = s, gx = (fn(X0 + d, Y0) - fn(X0 - d, Y0))/(2*d), gy = (fn(X0, Y0 + d) - fn(X0, Y0 - d))/(2*d);
+      const hs = Math.max(0, Math.min(1, 0.72 + (-gx + gy)*0.9)), c0 = T.hyps(z), k = 4*(j*w + i); id.data[k] = c0[0]*255*hs; id.data[k+1] = c0[1]*255*hs; id.data[k+2] = c0[2]*255*hs; id.data[k+3] = 255; }
+    x.putImageData(id, 0, 0); return c; }
+  const cA = document.getElementById('cA'), cB = document.getElementById('cB');
+  const sA = shade(T.surface, 800, 500, 1), sB = shade(T.ground, 800, 500, 1);
+  [[cA, sA], [cB, sB]].forEach(([c, s]) => { c.width = 800; c.height = 500; c.getContext('2d').drawImage(s, 0, 0); });
+  const sw = document.getElementById('swipe'), bar = document.getElementById('bar'), wA = document.getElementById('wA');
+  let frac = 0.5, drag = false;
+  function setFrac(fx){ frac = Math.max(0, Math.min(1, fx)); const r = cA.getBoundingClientRect(), s = sw.getBoundingClientRect(), xpx = r.left - s.left + frac*r.width;
+    bar.style.left = (xpx - 2) + 'px'; wA.style.clipPath = `inset(0 ${s.width - xpx}px 0 0)`;
+    document.getElementById('lA').style.left = (r.left - s.left + 10) + 'px'; document.getElementById('lB').style.left = (r.right - s.left - 160) + 'px'; }
+  sw.addEventListener('pointerdown', e => { drag = true; sw.setPointerCapture(e.pointerId); clk.pause(); const r = cA.getBoundingClientRect(); setFrac((e.clientX - r.left)/r.width); });
+  sw.addEventListener('pointermove', e => { if(!drag) return; const r = cA.getBoundingClientRect(); setFrac((e.clientX - r.left)/r.width); });
+  sw.addEventListener('pointerup', () => drag = false);
+  const T0 = [0, 5, 10, 19, 26], DUR = [5, 5, 9, 7, 10];
+  const clk = AnimUI.init({duration:36, loop:true, phases:[
+    {t:0, text:'Norul dens fotogrametric descrie <b>suprafața</b> (DSM): acoperișuri, coronamentul arborilor, solul liber.'},
+    {t:5, text:'Filtrarea începe cu <b>punctele cele mai joase</b> din celule mari — acestea sunt sigur pe sol.'},
+    {t:10, text:'Iterativ se adaugă punctele <b>apropiate de suprafața solului</b> (distanță și unghi maxime) — algoritmul nu „urcă" pe case și arbori.'},
+    {t:19, text:'Rezultatul: <b>puncte de sol → DTM</b>. Sub coronamentul des, fotogrametria nu vede solul — acolo DTM-ul este doar <b>interpolat</b> (vezi LiDAR).'},
+    {t:26, text:'<b>DSM ↔ DTM</b>: trage bara galbenă pentru a compara suprafața cu terenul natural.'}]});
+  document.querySelectorAll('.opts button').forEach(b => b.onclick = () => clk.seek(T0[+b.dataset.s] + 0.01));
+  (function frame(){
+    const t = clk.update(), a = T0.reduce((acc, v, i) => t >= v ? i : acc, 0), f = (t - T0[a])/DUR[a];
+    document.querySelectorAll('.opts button').forEach(b => b.classList.toggle('on', +b.dataset.s === a));
+    const sw4 = a === 4; sw.style.display = sw4 ? 'block' : 'none'; document.getElementById('sv').style.display = sw4 ? 'none' : 'block';
+    if(sw4){ if(!drag && clk.playing) setFrac(0.5 + 0.42*Math.sin(f*Math.PI*2)); else setFrac(frac); } else draw(a, f);
+    requestAnimationFrame(frame);
+  })();
+})();
+</script>
+</body></html>
