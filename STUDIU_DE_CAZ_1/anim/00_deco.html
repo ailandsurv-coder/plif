@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><style>html,body{margin:0;height:100%;background:transparent;overflow:hidden}canvas{width:100%;height:100%;display:block}</style></head>
+<body><canvas id="c"></canvas>
+<script>
+/* decor pentru slide-ul de titlu: randuri de trackere pe un teren ondulat; jumatate FT (drepte), jumatate XTR (urmaresc terenul) */
+(function(){
+  const c = document.getElementById('c'), x = c.getContext('2d');
+  function rs(){ c.width = c.clientWidth*2; c.height = c.clientHeight*2; } addEventListener('resize', rs); rs();
+  const ter = (u, v, t) => 0.10*Math.sin(u*5.5 + v*1.3) + 0.05*Math.sin(u*13 + 1.7 + v*2) + 0.04*Math.sin(v*7 + t*0.0);
+  (function f(ts){
+    const t = ts/1000, W = c.width, H = c.height; x.clearRect(0, 0, W, H);
+    const P = (u, v, z) => { const d = 1.5 + v*2.2, px = W/2 + (u - 0.5)*W*1.5/d, py = H*0.22 + H*0.75/d - z*H*1.1/d; return [px, py]; };
+    const rows = 9;
+    for(let r=rows-1;r>=0;r--){
+      const v = r/(rows - 1), xtr = Math.sin(t*0.6) > 0;
+      // terenul (linie)
+      x.strokeStyle = `rgba(201,164,106,${0.25 + 0.5*(1 - v)})`; x.lineWidth = 2;
+      x.beginPath(); for(let k=0;k<=80;k++){ const u = k/80, [a, b] = P(u, v, ter(u, v, t)); k ? x.lineTo(a, b) : x.moveTo(a, b); } x.stroke();
+      // tubul + pilotii
+      const n = 12, us = Array.from({length:n}, (_, k) => 0.08 + k*0.84/(n - 1));
+      const zt = us.map(u => ter(u, v, t)), zl = zt[0] + (zt[n-1] - zt[0])*0, mean = zt.reduce((a, b) => a + b)/n;
+      const sl = (zt[n-1] - zt[0])/(us[n-1] - us[0]);
+      const tube = us.map((u, k) => xtr ? zt[k] + 0.16 : mean + sl*(u - 0.5) + 0.16);
+      x.strokeStyle = xtr ? 'rgba(91,227,154,.95)' : 'rgba(255,201,64,.95)'; x.lineWidth = 5 - 3*v;
+      x.beginPath(); us.forEach((u, k) => { const [a, b] = P(u, v, tube[k]); k ? x.lineTo(a, b) : x.moveTo(a, b); }); x.stroke();
+      x.lineWidth = 2.5 - 1.5*v; us.forEach((u, k) => { const [a, b] = P(u, v, tube[k]), [a2, b2] = P(u, v, zt[k]); const rev = tube[k] - zt[k], ok = Math.abs(rev - 0.16) < 0.03;
+        x.strokeStyle = ok ? 'rgba(220,230,245,.8)' : (rev > 0.16 ? 'rgba(80,160,255,.95)' : 'rgba(255,98,98,.95)'); x.beginPath(); x.moveTo(a, b); x.lineTo(a2, b2); x.stroke(); });
+    }
+    x.font = `700 ${W*0.022}px Segoe UI`; x.fillStyle = Math.sin(t*0.6) > 0 ? '#5be39a' : '#ffc940';
+    x.fillText(Math.sin(t*0.6) > 0 ? 'XTR — tubul urmărește terenul' : 'FT — tub drept', W*0.06, H*0.94);
+    requestAnimationFrame(f);
+  })(0);
+})();
+</script></body></html>

@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Principiul analizei de terasamente</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/anim-ui.js"></script>
+<style>#sv{position:absolute;left:1%;top:110px;width:80%;height:calc(100% - 260px)}</style>
+</head><body>
+<div class="a-title">Principiul: două suprafețe, o diferență<small>Teren existent (EG) − suprafață proiectată (FG) = săpătură / umplutură · secțiune verticală, cote exagerate</small></div>
+<div class="opts"><button data-s="0" class="on">1 · Terenul existent</button><button data-s="1">2 · Suprafața proiectată</button><button data-s="2">3 · ΔZ și volumul</button><button data-s="3">4 · Starea pământului</button><button data-s="4">5 · Echilibrarea</button><button data-s="5">6 · Banda de toleranță</button></div>
+<svg id="sv" viewBox="0 0 1600 700" preserveAspectRatio="xMidYMid meet"></svg>
+<script>
+(function(){
+  const {seg, ease, lerp} = AnimUI, sv = document.getElementById('sv');
+  const N = 160, L = 160;                                   // 160 m de profil
+  const eg = s => 100 + 0.9*Math.sin(s/23) + 0.45*Math.sin(s/7.3 + 1) + 0.006*s;   // terenul natural
+  const fg = s => 100.25 + 0.006*s;                                                // platforma proiectata (panta 0,6 %)
+  const X = s => 110 + s/L*1380, Y = z => 360 - (z - 100)*150;
+  const S = Array.from({length:N + 1}, (_, i) => i*L/N);
+  const path = (f, a, b) => S.filter(s => s >= a && s <= b).map((s, i) => (i ? 'L' : 'M') + X(s).toFixed(1) + ' ' + Y(f(s)).toFixed(1)).join(' ');
+  const W = 1;                                              // 1 m latime (volum pe metru liniar)
+  let VC = 0, VF = 0; S.forEach(s => { const d = eg(s) - fg(s); if(d > 0) VC += d*L/N; else VF -= d*L/N; });
+  const T0 = [0, 6, 12, 22, 31, 39], DUR = 48;
+  const clk = AnimUI.init({duration:DUR, loop:true, phases:[
+    {t:0, text:'<b>Terenul existent (EG)</b> — suprafața de azi, din ridicarea topo, LiDAR sau fotogrammetrie.'},
+    {t:6, text:'<b>Suprafața proiectată (FG)</b> — cum trebuie să arate terenul după lucrări (aici o platformă cu panta de 0,6 %).'},
+    {t:12, text:'În fiecare punct: <b>ΔZ = FG − EG</b>. Roșu = <b>săpătură</b> (proiectul e sub teren), albastru = <b>umplutură</b>. Volumul = Σ ΔZ × aria celulei.'},
+    {t:22, text:'Pământul își schimbă volumul: <b>1 mc în banc → ≈ 1,20 mc afânat</b> în basculantă → <b>≈ 0,90 mc</b> compactat în umplutură.'},
+    {t:31, text:'<b>Echilibrarea</b>: pământul din săpătură se folosește la umplutură, pe distanțe cât mai mici. Excedentul pleacă din șantier — cel mai scump.'},
+    {t:39, text:'La trackere nu se cere o platformă perfectă: terenul trebuie doar să rămână într-o <b>bandă de ±15 cm</b> față de linia tubului. Se mută doar ce iese din bandă.'}]});
+  document.querySelectorAll('.opts button').forEach(b => b.onclick = () => clk.seek(T0[+b.dataset.s] + 0.01));
+  function box(x, y, w, h, c, txt, sub){ return `<rect x="${x}" y="${y - h}" width="${w}" height="${h}" rx="6" fill="${c}" opacity=".85"/><text x="${x + w/2}" y="${y - h - 14}" fill="#fff" font-size="24" font-weight="700" text-anchor="middle">${txt}</text><text x="${x + w/2}" y="${y + 30}" fill="#b4c0d4" font-size="19" text-anchor="middle">${sub}</text>`; }
+  (function frame(){
+    const t = clk.update(), a = T0.reduce((acc, v, i) => t >= v ? i : acc, 0);
+    document.querySelectorAll('.opts button').forEach(b => b.classList.toggle('on', +b.dataset.s === a));
+    let h = '';
+    // grila de cote
+    for(let z = 98.5; z <= 101.6; z += 0.5) h += `<line x1="110" x2="1490" y1="${Y(z)}" y2="${Y(z)}" stroke="#1d2c4a"/><text x="100" y="${Y(z) + 6}" fill="#7f8fae" font-size="16" text-anchor="end">${z.toFixed(1)}</text>`;
+    for(let s = 0; s <= L; s += 20) h += `<text x="${X(s)}" y="${Y(98.5) + 26}" fill="#7f8fae" font-size="16" text-anchor="middle">${s} m</text>`;
+    const showBox = a === 3;
+    if(!showBox){
+      // terenul: se deseneaza progresiv
+      const k1 = seg(t, 0.3, 4, x => x);
+      h += `<path d="${path(eg, 0, L*k1)} L ${X(L*k1)} ${Y(98.5)} L ${X(0)} ${Y(98.5)} Z" fill="rgba(201,164,106,.12)"/>`;
+      h += `<path d="${path(eg, 0, L*k1)}" fill="none" stroke="#c9a46a" stroke-width="4"/>`;
+      if(k1 > 0.3) h += `<text x="${X(8)}" y="${Y(eg(8)) - 18}" fill="#c9a46a" font-size="24" font-weight="700">EG — teren existent</text>`;
+      const k2 = seg(t, 6.3, 10, x => x);
+      if(t >= 6) h += `<path d="${path(fg, 0, L*k2)}" fill="none" stroke="#3fd0ff" stroke-width="4" stroke-dasharray="${a >= 5 ? '0' : '14 8'}"/>`;
+      if(k2 > 0.5) h += `<text x="${X(120)}" y="${Y(fg(120)) - 70}" fill="#3fd0ff" font-size="24" font-weight="700">FG — suprafața proiectată</text>`;
+      // coloanele DeltaZ
+      if(t >= 12){
+        const k3 = seg(t, 12.3, 18, x => x), tau = a === 5 ? 0.15*seg(t, 39.5, 42) : 0;
+        if(a === 5){ const up = [0, L].map(s => X(s) + ',' + Y(fg(s) + tau)), dn = [L, 0].map(s => X(s) + ',' + Y(fg(s) - tau));
+          h += `<polygon points="${up.concat(dn).join(' ')}" fill="rgba(91,227,154,.16)" stroke="#5be39a" stroke-dasharray="6 6"/>
+            <text x="${X(4)}" y="${Y(fg(4) + tau) - 10}" fill="#5be39a" font-size="20" font-weight="700">banda ±15 cm</text>`; }
+        let vc = 0, vf = 0;
+        S.forEach((s, i) => { if(s > L*k3 || i === N) return; const d = eg(s) - fg(s), w = X(L/N) - X(0) - 1;
+          const top = Math.max(eg(s), fg(s) + (d > 0 ? tau : 0)), bot = Math.min(eg(s), fg(s) - (d < 0 ? tau : 0));
+          if(d > tau){ h += `<rect x="${X(s)}" y="${Y(eg(s))}" width="${w}" height="${Y(fg(s) + tau) - Y(eg(s))}" fill="#ff6262" opacity=".75"/>`; vc += (d - tau)*L/N; }
+          else if(d < -tau){ h += `<rect x="${X(s)}" y="${Y(fg(s) - tau)}" width="${w}" height="${Y(eg(s)) - Y(fg(s) - tau)}" fill="#4f9dff" opacity=".75"/>`; vf += (-d - tau)*L/N; } });
+        const cx = 1130, cy = 480;
+        h += `<rect x="${cx}" y="${cy}" width="380" height="${a >= 4 ? 180 : 130}" rx="12" fill="rgba(12,20,38,.92)" stroke="rgba(140,170,220,.3)"/>
+          <text x="${cx + 20}" y="${cy + 38}" fill="#ff8a8a" font-size="24">Săpătură: <tspan font-weight="800">${(vc*W).toFixed(1).replace('.', ',')} mc/m</tspan></text>
+          <text x="${cx + 20}" y="${cy + 76}" fill="#8ec5ff" font-size="24">Umplutură: <tspan font-weight="800">${(vf*W).toFixed(1).replace('.', ',')} mc/m</tspan></text>
+          <text x="${cx + 20}" y="${cy + 112}" fill="#b4c0d4" font-size="19">pe 1 m lățime · ${a === 5 ? 'doar în afara benzii ±15 cm' : 'tot ce diferă de proiect'}</text>`;
+        if(a >= 4) h += `<text x="${cx + 20}" y="${cy + 150}" fill="#ffc940" font-size="22">Bilanț: ${((vc*1.2 - vf)).toFixed(1).replace('.', ',')} mc/m excedent afânat</text>`;
+        // sageti de echilibrare
+        if(a === 4){ const f = (t - 31)*0.5 % 1;
+          [[26, 58], [93, 125], [140, 112]].forEach(([s0, s1], j) => { const ff = (f + j*0.3) % 1, s = lerp(s0, s1, ease(ff)), z = Math.max(eg(s), fg(s)) + 0.35 + 0.25*Math.sin(Math.PI*ff);
+            h += `<path d="M ${X(s0)} ${Y(eg(s0)) - 20} Q ${X((s0 + s1)/2)} ${Y(101.4)} ${X(s1)} ${Y(eg(s1)) - 20}" fill="none" stroke="#ffc940" stroke-width="2.5" stroke-dasharray="8 6" opacity=".8"/>
+              <rect x="${X(s) - 16}" y="${Y(z) - 12}" width="32" height="20" rx="4" fill="#c9a46a" stroke="#fff"/>`; }); }
+      }
+    } else {
+      // starea pamantului: trei cutii
+      const k = seg(t, 22.5, 26), k2 = seg(t, 25.5, 29);
+      h += box(260, 520, 220, 220, '#a7794a', '1,00 mc', 'în banc (bcm) — măsurat de topograf');
+      h += `<text x="560" y="420" fill="#ffc940" font-size="54">→</text>`;
+      h += box(660, 520, 220*Math.sqrt(lerp(1, 1.2, k)), 220*Math.sqrt(lerp(1, 1.2, k)), '#d1a26a', lerp(1, 1.2, k).toFixed(2).replace('.', ',') + ' mc', 'afânat (lcm) — în basculantă');
+      h += `<text x="1000" y="420" fill="#ffc940" font-size="54">→</text>`;
+      h += box(1100, 520, 220*Math.sqrt(lerp(1.2, 0.9, k2)), 220*Math.sqrt(lerp(1.2, 0.9, k2)), '#7a5a3a', lerp(1.2, 0.9, k2).toFixed(2).replace('.', ',') + ' mc', 'compactat (ccm) — în umplutură');
+      h += `<text x="800" y="640" fill="#b4c0d4" font-size="22" text-anchor="middle">Factorii depind de pământ: argilă 1,25–1,35 · nisip 1,10–1,15 · rocă 1,4–1,6. Valoarea uzuală în rapoarte: 1,2.</text>`;
+    }
+    sv.innerHTML = h;
+    requestAnimationFrame(frame);
+  })();
+})();
+</script>
+</body></html>
