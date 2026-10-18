@@ -3,81 +3,75 @@
 <title>Structura: FT față de XTR</title>
 <link rel="stylesheet" href="../lib/anim.css">
 <script src="../lib/anim-ui.js"></script><script src="../lib/trv.js"></script><script src="../data/trackere.js"></script>
-<style>#sv{position:absolute;left:1%;top:96px;width:76%;height:calc(100% - 250px)}
-.side{right:20px;top:330px;width:22%}</style>
+<style>#sv{position:absolute;left:1%;top:140px;width:74%;height:calc(100% - 290px)}
+#pick{position:absolute;left:28px;top:96px;display:flex;gap:8px;align-items:center;z-index:40}
+#pick select,#pick button{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:7px 12px;font-size:15px;font-family:inherit}
+.side{right:20px;top:240px;width:23%}</style>
 </head><body>
-<div class="a-title">Pasul 3 · Structura dă libertatea tubului<small id="sub"></small></div>
-<div class="opts"><button data-k="ORIG_APR">Inițial — capete pe teren</button><button data-k="FT">FT — tub drept (0°)</button><button data-k="XTR_075">XTR 0,75° / pilot</button><button data-k="XTR_1" class="on">XTR 1° / pilot</button><button data-k="XTR_2">XTR 2° / pilot</button></div>
-<svg id="sv" viewBox="0 0 1500 760" preserveAspectRatio="xMidYMid meet"></svg>
+<div class="a-title">Structura dă libertatea tubului: FT față de XTR<small id="sub"></small></div>
+<div id="pick"><button id="prev">◀</button><select id="sel"></select><button id="next">▶</button></div>
+<div class="opts"><button data-k="EG">Teren existent</button><button data-k="SUPR_FT">FT — tub drept (0°)</button><button data-k="SUPR_XTR_1">XTR — 1° pe pilot</button></div>
+<svg id="sv" viewBox="0 0 1500 700" preserveAspectRatio="xMidYMid meet"></svg>
 <div class="a-panel side" id="side"></div>
 <script>
 (function(){
-  const {seg, ease, lerp} = AnimUI, nf = TRV.nf;
-  // trackerul demonstrativ: cel mai mult pamant in varianta FT, cu cel putin 12 piloti
-  const cand = TRK.filter(t => t.p.length >= 12).sort((a, b) => (b.ev.FT[0] + b.ev.FT[1]) - (a.ev.FT[0] + a.ev.FT[1]));
-  const t = cand[0], s = t.s, n = s.length, L = t.L, TAU = 0.15;
-  const mm = v => t.zb + v/1000;
-  const gm = s.map((_, i) => (mm(t.g[0][i]) + mm(t.g[1][i]) + mm(t.g[2][i]))/3);
-  const D = {}; Object.keys(t.d).forEach(k => D[k] = t.d[k].map(mm));
-  const zAt = (arr, x) => { let i = Math.min(n - 2, Math.max(0, s.findIndex(v => v >= x) - 1)); if(i < 0) i = 0; const f = (x - s[i])/((s[i+1] - s[i]) || 1); return arr[i] + (arr[i+1] - arr[i])*Math.max(0, Math.min(1, f)); };
-  const all = [].concat(gm, ...Object.values(D)), zlo = Math.min(...all) - 0.35, zhi = Math.max(...all) + 0.35;
-  const X = x => 70 + x/L*1400, VE = 330/(zhi - zlo), Y = z => 560 - (z - zlo)*VE, TUBE = 150;   // tubul desenat la 150 px deasupra (nescalat)
-  document.getElementById('sub').textContent = `Tracker real nr. ${t.id} · ${nf(L, 1)} m · ${t.p.length} piloți, deschideri ${nf(Math.min(...t.p.slice(1).map((v, i) => v - t.p[i])), 2)}–${nf(Math.max(...t.p.slice(1).map((v, i) => v - t.p[i])), 2)} m · exagerare verticală ×${Math.round(VE/(1400/L))}`;
-  const SEQ = ['ORIG_APR', 'FT', 'XTR_1', 'XTR_075', 'XTR_2'];
-  const bays = t.p.slice(1).map((v, i) => v - t.p[i]).sort((a, b) => a - b), PM = bays[Math.floor(bays.length/2)];
-  const T0 = [0, 8, 16, 27, 33], DUR = 40;
+  const {seg, ease, lerp} = AnimUI, nf = TRV.nf, TAU = 0.15, TUBE = 140;
+  const work = t => t.g.reduce((a, v, i) => a + Math.abs(t.f.SUPR_FT[i] - v), 0);
+  const LIST = TRK.filter(t => t.p.length >= 8).sort((a, b) => work(b) - work(a)).slice(0, 40);
+  const sel = document.getElementById('sel');
+  sel.innerHTML = LIST.map((t, k) => `<option value="${k}">#${k + 1} · tracker ${t.id} · ${nf(t.L)} m · ${t.p.length} piloți</option>`).join('');
+  let ti = 0, auto = true, lastT = 0;
+  const pickT = k => { ti = (k + LIST.length) % LIST.length; sel.value = ti; auto = false; clk.seek(0); };
+  sel.onchange = () => pickT(+sel.value); document.getElementById('prev').onclick = () => pickT(ti - 1); document.getElementById('next').onclick = () => pickT(ti + 1);
   let manual = null;
-  const clk = AnimUI.init({duration:DUR, loop:true, onSeek:() => { manual = null; }, phases:[
-    {t:0, text:'Proiectul inițial: tubul drept, cu capetele pe teren. La fiecare pilot terenul trebuie să cadă în <b>fereastra ±15 cm</b> — piloții roșii / albaștri ies din ea.'},
-    {t:8, text:'<b>FT optimizat</b>: tubul rămâne drept, dar optimizatorul îl ridică, îl coboară și îl înclină. Rămân câteva zone de săpătură / umplutură.'},
-    {t:16, text:'<b>XTR</b>: tubul se poate frânge la fiecare pilot cu cel mult <b>1°</b>. La o deschidere de ' + TRV.nf(PM, 2) + ' m, 1° înseamnă ' + TRV.nf(PM*Math.tan(Math.PI/180)*100) + ' cm abatere de la linia dreaptă.'},
-    {t:27, text:'<b>0,75°</b> pe pilot (valoarea din brevetele producătorului): rezultat aproape identic pe acest parc.'},
-    {t:33, text:'<b>2°</b> pe pilot (cel mai flexibil sistem de pe piață): câștigul suplimentar e foarte mic — terenul e deja urmărit.'}]});
   document.querySelectorAll('.opts button').forEach(b => b.onclick = () => { manual = b.dataset.k; clk.pause(); });
+  const SEQ = ['EG', 'SUPR_FT', 'SUPR_XTR_1'], T0 = [0, 6, 16], DUR = 26;
+  const clk = AnimUI.init({duration:DUR, loop:true, onSeek:() => { manual = null; }, phases:[
+    {t:0, text:'Profilul terenului existent de-a lungul unui tracker real, cu piloții lui. La fiecare pilot terenul trebuie să cadă în <b>fereastra ±15 cm</b> sub tub.'},
+    {t:6, text:'<b>FT — tub drept</b>: tubul e o singură dreaptă; unde terenul iese din fereastră, suprafața de nivelare sapă (roșu) sau umple (albastru).'},
+    {t:16, text:'<b>XTR — 1° pe pilot</b>: tubul se frânge la fiecare pilot (cifrele galbene) și urmărește terenul — lucrările aproape dispar.'}]});
   const side = document.getElementById('side');
-  let cur = D.ORIG_APR.slice(), from = D.ORIG_APR.slice(), target = 'ORIG_APR', tSw = 0;
+  let cur = null, curT = null, tgt = null, from = null, tSw = 0;
   (function frame(){
-    const tt = clk.update(), a = T0.reduce((acc, v, i) => tt >= v ? i : acc, 0);
-    const want = manual || SEQ[a];
-    if(want !== target){ from = cur.slice(); target = want; tSw = performance.now(); }
-    const f = ease(Math.min(1, (performance.now() - tSw)/1600));
-    cur = from.map((v, i) => lerp(v, D[target][i], f));
-    document.querySelectorAll('.opts button').forEach(b => b.classList.toggle('on', b.dataset.k === target));
+    const tt = clk.update();
+    if(tt < lastT && auto){ ti = (ti + 1) % LIST.length; sel.value = ti; } lastT = tt;
+    const t = LIST[ti], mm = v => t.zb + v/1000, s = t.s, n = s.length, L = t.L;
+    const a = T0.reduce((acc, v, i) => tt >= v ? i : acc, 0), want = manual || SEQ[a];
+    const EG = t.g.map(mm), FIN = want === 'EG' ? EG : t.f[want].map(mm), DK = (want === 'EG' ? t.d.SUPR_FT : t.d[want]).map(mm);
+    if(tgt !== want + t.id){ from = cur && curT === t.id ? cur : {g:EG, d:DK}; tgt = want + t.id; tSw = performance.now(); curT = t.id; }
+    const f = ease(Math.min(1, (performance.now() - tSw)/1300));
+    cur = {g:from.g.map((v, i) => lerp(v, FIN[i], f)), d:from.d.map((v, i) => lerp(v, DK[i], f))};
+    document.querySelectorAll('.opts button').forEach(b => b.classList.toggle('on', b.dataset.k === want));
+    const all = [].concat(EG, t.f.SUPR_FT.map(mm), t.d.SUPR_FT.map(mm), t.d.SUPR_XTR_1.map(mm)), zlo = Math.min(...all) - 0.3, zhi = Math.max(...all) + 0.3;
+    const X = x => 70 + x/L*1400, VE = 360/(zhi - zlo), Y = z => 600 - (z - zlo)*VE;
+    document.getElementById('sub').textContent = `Tracker ${t.id} · ${nf(L, 1)} m · ${t.p.length} piloți · terenul final din suprafața de nivelare (pe axă) · exagerare verticală ×${Math.round(VE/(1400/L))}`;
     let h = '';
     const stz = [0.1, 0.2, 0.25, 0.5, 1].find(v => (zhi - zlo)/v <= 12) || 1;
     for(let z = Math.ceil(zlo/stz)*stz; z <= zhi; z += stz) h += `<line x1="70" x2="1470" y1="${Y(z)}" y2="${Y(z)}" stroke="#1d2c4a"/><text x="62" y="${Y(z) + 5}" fill="#7f8fae" font-size="14" text-anchor="end">${z.toFixed(1)}</text>`;
-    for(let x = 0; x <= L; x += 10) h += `<text x="${X(x)}" y="590" fill="#7f8fae" font-size="14" text-anchor="middle">${x} m</text>`;
-    h += `<text x="70" y="620" fill="#7f8fae" font-size="15">sud</text><text x="1470" y="620" fill="#7f8fae" font-size="15" text-anchor="end">nord</text>`;
-    // banda +-15 cm in jurul liniei de referinta
-    const up = s.map((x, i) => `${X(x).toFixed(1)},${Y(cur[i] + TAU).toFixed(1)}`), dn = s.map((x, i) => `${X(x).toFixed(1)},${Y(cur[i] - TAU).toFixed(1)}`).reverse();
-    h += `<polygon points="${up.concat(dn).join(' ')}" fill="rgba(91,227,154,.13)" stroke="#5be39a" stroke-width="1" stroke-dasharray="5 5"/>`;
-    // sapatura / umplutura (pe axa medie)
-    for(let i=0;i<n-1;i++){ const x0 = X(s[i]), x1 = X(s[i+1]), w = x1 - x0 + 0.5;
-      const ex = gm[i] - cur[i];
-      if(ex > TAU) h += `<rect x="${x0}" y="${Y(gm[i])}" width="${w}" height="${Y(cur[i] + TAU) - Y(gm[i])}" fill="#ff6262" opacity=".7"/>`;
-      else if(ex < -TAU) h += `<rect x="${x0}" y="${Y(cur[i] - TAU)}" width="${w}" height="${Y(gm[i]) - Y(cur[i] - TAU)}" fill="#4f9dff" opacity=".7"/>`; }
-    // terenul (cele 3 linii ale mesei)
-    [0, 2].forEach(j => h += `<path d="${s.map((x, i) => (i ? 'L' : 'M') + X(x).toFixed(1) + ' ' + Y(mm(t.g[j][i])).toFixed(1)).join(' ')}" fill="none" stroke="#8a6d45" stroke-width="1.2" opacity=".7"/>`);
-    h += `<path d="${s.map((x, i) => (i ? 'L' : 'M') + X(x).toFixed(1) + ' ' + Y(gm[i]).toFixed(1)).join(' ')}" fill="none" stroke="#c9a46a" stroke-width="3.5"/>`;
-    // tubul + pilotii
-    const tub = s.map((x, i) => (i ? 'L' : 'M') + X(x).toFixed(1) + ' ' + (Y(cur[i]) - TUBE).toFixed(1)).join(' ');
-    h += `<path d="${tub}" fill="none" stroke="#e8eef8" stroke-width="7" stroke-linecap="round"/>`;
-    const zp = t.p.map(p => zAt(cur, p)), gp = t.p.map(p => zAt(gm, p));
+    for(let x = 0; x <= L; x += 10) h += `<text x="${X(x)}" y="628" fill="#7f8fae" font-size="14" text-anchor="middle">${x} m</text>`;
+    // banda +-15 cm sub tub
+    const up = s.map((x, i) => `${X(x).toFixed(1)},${Y(cur.d[i] + TAU).toFixed(1)}`), dn = s.map((x, i) => `${X(x).toFixed(1)},${Y(cur.d[i] - TAU).toFixed(1)}`).reverse();
+    h += `<polygon points="${up.concat(dn).join(' ')}" fill="rgba(91,227,154,.12)" stroke="#5be39a" stroke-dasharray="5 5"/>`;
+    for(let i=0;i<n-1;i++){ const x0 = X(s[i]), w = X(s[i+1]) - x0 + 0.5, d = cur.g[i] - EG[i];
+      if(d < -0.01) h += `<rect x="${x0}" y="${Y(EG[i])}" width="${w}" height="${Y(cur.g[i]) - Y(EG[i])}" fill="#ff6262" opacity=".75"/>`;
+      else if(d > 0.01) h += `<rect x="${x0}" y="${Y(cur.g[i])}" width="${w}" height="${Y(EG[i]) - Y(cur.g[i])}" fill="#4f9dff" opacity=".75"/>`; }
+    const path = arr => s.map((x, i) => (i ? 'L' : 'M') + X(x).toFixed(1) + ' ' + Y(arr[i]).toFixed(1)).join(' ');
+    h += `<path d="${path(EG)}" fill="none" stroke="#c9a46a" stroke-width="1.6" stroke-dasharray="6 4"/><path d="${path(cur.g)}" fill="none" stroke="#c9a46a" stroke-width="3.5"/>`;
+    h += `<path d="${s.map((x, i) => (i ? 'L' : 'M') + X(x).toFixed(1) + ' ' + (Y(cur.d[i]) - TUBE).toFixed(1)).join(' ')}" fill="none" stroke="#e8eef8" stroke-width="7" stroke-linecap="round"/>`;
+    const at = (arr, p) => { const i = Math.min(n - 2, Math.max(0, s.findIndex(v => v >= p) - 1)); const q = (p - s[i])/((s[i+1] - s[i]) || 1); return arr[i] + (arr[i+1] - arr[i])*Math.max(0, Math.min(1, q)); };
     let nOut = 0;
-    t.p.forEach((p, k) => { const ex = gp[k] - zp[k], out = Math.abs(ex) > TAU + 0.005, c = !out ? '#5be39a' : ex > 0 ? '#ff6262' : '#4f9dff'; if(out) nOut++;
-      h += `<line x1="${X(p)}" x2="${X(p)}" y1="${Y(zp[k]) - TUBE}" y2="${Y(gp[k])}" stroke="${c}" stroke-width="5"/>`;
-      h += `<line x1="${X(p) - 9}" x2="${X(p) + 9}" y1="${Y(zp[k] + TAU)}" y2="${Y(zp[k] + TAU)}" stroke="#5be39a" stroke-width="2"/><line x1="${X(p) - 9}" x2="${X(p) + 9}" y1="${Y(zp[k] - TAU)}" y2="${Y(zp[k] - TAU)}" stroke="#5be39a" stroke-width="2"/>`;
-      // unghiul de frangere la pilot
-      if(k > 0 && k < t.p.length - 1){ const s1 = (zp[k] - zp[k-1])/(p - t.p[k-1]), s2 = (zp[k+1] - zp[k])/(t.p[k+1] - p), dg = (Math.atan(s2) - Math.atan(s1))*180/Math.PI;
-        if(Math.abs(dg) > 0.02) h += `<text x="${X(p)}" y="${Y(zp[k]) - TUBE - 16}" fill="${Math.abs(dg) > 1.02 ? '#ff9d3c' : '#ffc940'}" font-size="15" font-weight="700" text-anchor="middle">${dg > 0 ? '+' : ''}${dg.toFixed(2).replace('.', ',')}°</text>`; } });
-    h += `<text x="${X(0)}" y="40" fill="#e8eef8" font-size="18" font-weight="700">tubul de torsiune — desenat nescalat, ≈ 1,5 m deasupra terenului · cifrele galbene = frângerea la pilot</text>`;
-    h += `<text x="${X(L*0.02)}" y="${Y(gm[2]) + 46}" fill="#c9a46a" font-size="17" font-weight="700">terenul pe axă (gros) și pe marginile mesei, ±1,19 m (subțire)</text>`;
+    t.p.forEach((p, k) => { const zp = at(cur.d, p), gp = at(cur.g, p), ex = gp - zp, out = Math.abs(ex) > TAU + 0.01, c = !out ? '#5be39a' : ex > 0 ? '#ff6262' : '#4f9dff'; if(out) nOut++;
+      h += `<line x1="${X(p)}" x2="${X(p)}" y1="${Y(zp) - TUBE}" y2="${Y(gp)}" stroke="${c}" stroke-width="5"/>`;
+      if(k > 0 && k < t.p.length - 1 && want === 'SUPR_XTR_1' && f > 0.95){ const z0 = at(cur.d, t.p[k-1]), z2 = at(cur.d, t.p[k+1]);
+        const dg = (Math.atan((z2 - zp)/(t.p[k+1] - p)) - Math.atan((zp - z0)/(p - t.p[k-1])))*180/Math.PI;
+        if(Math.abs(dg) > 0.03) h += `<text x="${X(p)}" y="${Y(zp) - TUBE - 14}" fill="#ffc940" font-size="15" font-weight="700" text-anchor="middle">${dg > 0 ? '+' : ''}${dg.toFixed(2).replace('.', ',')}°</text>`; } });
+    h += `<text x="70" y="36" fill="#e8eef8" font-size="17" font-weight="700">tubul — desenat nescalat, ≈ 1,5 m deasupra terenului · linia punctată = terenul existent · linia plină = terenul final</text>`;
     document.getElementById('sv').innerHTML = h;
-    const ev = t.ev[target];
-    side.innerHTML = `<h4>${TRV.SCN[target].n}</h4><table>
-      <tr><td>Săpătură</td><td style="color:#ff8a8a">${nf(ev[0], 1)} mc</td></tr><tr><td>Umplutură</td><td style="color:#8ec5ff">${nf(ev[1], 1)} mc</td></tr>
-      <tr><td>Piloți în afara ferestrei</td><td>${nOut} / ${t.p.length}</td></tr><tr><td>Masă în bandă</td><td>${nf(ev[6]*100, 0)} %</td></tr></table>
-      <div style="margin-top:10px;color:var(--muted);font-size:.9em">Raza de curbură echivalentă la 1° pe ${nf(PM, 2)} m: <b style="color:var(--gold)">R ≈ ${nf(PM/(Math.PI/180))} m</b>. Terenul cu ondulații mai largi de atât e urmărit fără terasamente.</div>`;
+    let ac = 0, af = 0, hc = 0, hf = 0; for(let i=0;i<n-1;i++){ const d = FIN[i] - EG[i], ds = s[i+1] - s[i]; if(d < 0){ ac -= d*ds; hc = Math.max(hc, -d); } else { af += d*ds; hf = Math.max(hf, d); } }
+    side.innerHTML = `<h4>${want === 'EG' ? 'Teren existent' : want === 'SUPR_FT' ? 'FT — tub drept' : 'XTR — 1° pe pilot'}</h4><table>
+      <tr><td>Săpătură pe axă</td><td style="color:#ff8a8a">${nf(ac, 1)} m² · max ${nf(hc*100)} cm</td></tr><tr><td>Umplutură pe axă</td><td style="color:#8ec5ff">${nf(af, 1)} m² · max ${nf(hf*100)} cm</td></tr>
+      <tr><td>Piloți în afara ferestrei</td><td>${nOut} / ${t.p.length}</td></tr></table>
+      <div style="margin-top:8px;color:var(--muted);font-size:.92em">La 1° și o deschidere de 8,26 m, tubul se poate abate cu 14 cm pe deschidere — o rază de curbură de ≈ 473 m. Ondulațiile mai largi sunt urmărite fără terasamente.</div>`;
     requestAnimationFrame(frame);
   })();
 })();

@@ -1,123 +1,107 @@
 <!doctype html>
 <html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Terenul existent</title>
+<title>Terenul și suprafața de nivelare în 3D</title>
 <link rel="stylesheet" href="../lib/anim.css">
 <script src="../lib/three.min.js"></script><script src="../lib/OrbitControls.js"></script>
 <script src="../lib/anim-ui.js"></script><script src="../lib/trv.js"></script>
-<script src="../data/teren3d.js"></script><script src="../data/harta.js"></script><script src="../data/rezultate.js"></script>
-<style>.leg{right:20px;bottom:150px;min-width:250px}</style>
+<script src="../data/teren3d.js"></script><script src="../data/harta.js"></script><script src="../data/trackere.js"></script><script src="../data/rezultate.js"></script>
+<style>.leg{right:20px;bottom:150px;width:300px}</style>
 </head><body><div id="stage"></div>
-<div class="a-title">Pasul 1 · Terenul existent (EG) — parcul studiat<small><span id="npt"></span> de puncte topo (aprilie 2026) → model TIN → grilă de 1 m · exagerare verticală ×3</small></div>
-<div class="opts" id="opts">
-  <button data-l="relief" class="on">Relief (hipsometric)</button><button data-l="ORIG_APR">Proiect inițial — capete pe teren</button>
-  <button data-l="FT">FT — tub drept optimizat</button><button data-l="XTR_1">XTR — 1° pe deschidere</button>
-  <div style="height:8px"></div><div id="zb" style="display:flex;flex-direction:column;gap:8px"></div></div>
+<div class="a-title">Terenul existent și suprafața de nivelare în 3D<small><span id="npt"></span> de puncte topo → TIN → grilă de 2 m · exagerare verticală ×4 · trageți = rotire, rotița = zoom</small></div>
+<div class="opts"><button data-k="PTS">Punctele topo</button><button data-k="TIN">Modelul TIN</button><button data-k="EG">Teren existent</button><button data-k="SUPR_FT">Suprafața de nivelare — FT</button><button data-k="SUPR_XTR_1">Suprafața de nivelare — XTR 1°</button><button data-k="TRK">☐ trackere</button></div>
 <div class="a-panel leg" id="leg"></div>
 <script>
 (function(){
-  const {seg, lerp, ease} = AnimUI, T = TEREN3D, H = HARTA, EX = 3;
-  const W = H.nx*H.CELL, HH = H.ny*H.CELL, zmid = (H.zmin + H.zmax)/2;
+  const {seg, ease, lerp} = AnimUI, nf = TRV.nf, T = TEREN3D, H = HARTA, EX = 4, R = REZ.rezultate;
+  document.getElementById('npt').textContent = nf(REZ.n_puncte_eg);
+  const nx = T.nx, ny = T.ny, F = T.F, z16 = TRV.b64u16(T.z);
+  const i16 = s => { const b = atob(s), u = new Uint8Array(b.length); for(let i=0;i<b.length;i++) u[i] = b.charCodeAt(i); return new Int16Array(u.buffer); };
+  const DZ = {SUPR_FT:i16(T.dz_SUPR_FT), SUPR_XTR_1:i16(T.dz_SUPR_XTR_1)};
+  const Z = H.zona, cx0 = (Z.x0 + Z.x1)/2, cy0 = (Z.y0 + Z.y1)/2, zmid = T.zmin + 4;
   const st = document.getElementById('stage');
   const ren = new THREE.WebGLRenderer({antialias:true, alpha:true}); ren.setPixelRatio(Math.min(2, devicePixelRatio||1)); st.appendChild(ren.domElement);
-  const sc = new THREE.Scene(), cam = new THREE.PerspectiveCamera(38, 1, 2, 20000);
-  sc.add(new THREE.AmbientLight(0xffffff, 0.5)); const dl = new THREE.DirectionalLight(0xffffff, 0.8); dl.position.set(-800, 1200, 600); sc.add(dl);
+  const sc = new THREE.Scene(), cam = new THREE.PerspectiveCamera(38, 1, 1, 20000);
+  sc.add(new THREE.AmbientLight(0xffffff, 0.5)); const dl = new THREE.DirectionalLight(0xffffff, 0.85); dl.position.set(-600, 900, 400); sc.add(dl);
   const ctr = new THREE.OrbitControls(cam, ren.domElement); ctr.enableDamping = true; ctr.maxPolarAngle = Math.PI*0.48;
   function rs(){ ren.setSize(st.clientWidth, st.clientHeight); cam.aspect = st.clientWidth/st.clientHeight; cam.updateProjectionMatrix(); } addEventListener('resize', rs); rs();
-  const P = (x, y, z) => new THREE.Vector3(x - W/2, (z - zmid)*EX, -(y - HH/2));
-
-  // ---- grila 4 m
-  const z16 = TRV.b64u16(T.z), nx = T.nx, ny = T.ny, F = T.F;
-  const zat = (i, j) => { const v = z16[j*nx + i]; return v === 65535 ? NaN : T.zmin + v/100; };
-  const pos = new Float32Array(nx*ny*3), uv = new Float32Array(nx*ny*2), colr = new Float32Array(nx*ny*3), idx = [];
-  const hyp = z => { const f = (z - H.zmin)/(H.zmax - H.zmin), S = [[0, [40, 92, 120]], [0.35, [70, 120, 92]], [0.6, [150, 150, 90]], [0.8, [165, 120, 80]], [1, [205, 190, 175]]];
-    for(let k=1;k<S.length;k++) if(f <= S[k][0]){ const a = S[k-1], b = S[k], u = (f - a[0])/(b[0] - a[0]); return a[1].map((v, c) => lerp(v, b[1][c], u)/255); } return [0.8, 0.75, 0.7]; };
-  for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){ const k = j*nx + i, z = zat(i, j), x = (i + 0.5)*F, y = (j + 0.5)*F, p = P(x, y, isNaN(z) ? H.zmin : z);
-    pos.set([p.x, p.y, p.z], 3*k); uv.set([x/W, y/HH], 2*k); colr.set(isNaN(z) ? [0, 0, 0] : hyp(z), 3*k); }
-  for(let j=0;j<ny-1;j++) for(let i=0;i<nx-1;i++){ const a = j*nx + i, b = a + 1, c = a + nx, d = c + 1;
-    if(z16[a] !== 65535 && z16[b] !== 65535 && z16[c] !== 65535 && z16[d] !== 65535) idx.push(a, c, b, b, c, d); }
-  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-  geo.setAttribute('color', new THREE.BufferAttribute(colr, 3)); geo.setIndex(idx); geo.computeVertexNormals();
-  const matH = new THREE.MeshLambertMaterial({vertexColors:true, side:THREE.DoubleSide, transparent:true, opacity:1});
-  const mesh = new THREE.Mesh(geo, matH); sc.add(mesh);
-  // textura: umbrire gri + harta cut/fill a scenariului
-  const cv = document.createElement('canvas'); cv.width = H.nx; cv.height = H.ny; const cx = cv.getContext('2d');
-  const tex = new THREE.CanvasTexture(cv); tex.flipY = true; tex.anisotropy = 8;
-  const matT = new THREE.MeshLambertMaterial({map:tex, side:THREE.DoubleSide});
-  const IM = {gri:TRV.img(H.gri)}; ['ORIG_APR', 'FT', 'XTR_1'].forEach(s => IM[s] = TRV.img(H['dz_' + s]));
-  let texFor = null;
-  function setTex(s){ if(texFor === s) return; if(!IM.gri.complete || !IM[s].complete) return; cx.clearRect(0, 0, cv.width, cv.height); cx.drawImage(IM.gri, 0, 0);
-    cx.drawImage(IM[s], 0, 0); tex.needsUpdate = true; texFor = s; }
-  // retea TIN (vizual, la 12 m)
-  const wpos = [], st3 = 3;
-  for(let j=0;j<ny-st3;j+=st3) for(let i=0;i<nx-st3;i+=st3){ const a = zat(i, j), b = zat(i + st3, j), c = zat(i, j + st3); if(isNaN(a) || isNaN(b) || isNaN(c)) continue;
-    const pa = P((i + .5)*F, (j + .5)*F, a + 0.15), pb = P((i + st3 + .5)*F, (j + .5)*F, b + 0.15), pc = P((i + .5)*F, (j + st3 + .5)*F, c + 0.15);
-    wpos.push(pa.x, pa.y, pa.z, pb.x, pb.y, pb.z, pa.x, pa.y, pa.z, pc.x, pc.y, pc.z, pb.x, pb.y, pb.z, pc.x, pc.y, pc.z); }
-  const wg = new THREE.BufferGeometry(); wg.setAttribute('position', new THREE.Float32BufferAttribute(wpos, 3));
+  const P = (x, y, z) => new THREE.Vector3(x - cx0, (z - zmid)*EX, -(y - cy0));
+  // ---- suprafata (grila de 2 m)
+  const pos = new Float32Array(nx*ny*3), uv = new Float32Array(nx*ny*2), idx = [], base = new Float32Array(nx*ny);
+  for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){ const k = j*nx + i, v = z16[k], z = v === 65535 ? NaN : T.zmin + v/100; base[k] = z;
+    const x = 0.5 + i*F, y = 0.5 + j*F, p = P(x, y, isNaN(z) ? T.zmin : z); pos.set([p.x, p.y, p.z], 3*k); uv.set([x/(H.nx*H.CELL), y/(H.ny*H.CELL)], 2*k); }
+  for(let j=0;j<ny-1;j++) for(let i=0;i<nx-1;i++){ const a = j*nx + i, b = a + 1, c = a + nx, d = c + 1; if(!isNaN(base[a] + base[b] + base[c] + base[d])) idx.push(a, c, b, b, c, d); }
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); geo.setIndex(idx); geo.computeVertexNormals();
+  const cv = document.createElement('canvas'); cv.width = H.nx; cv.height = H.ny; const c2 = cv.getContext('2d');
+  const tex = new THREE.CanvasTexture(cv); tex.anisotropy = 8;
+  const mat = new THREE.MeshLambertMaterial({map:tex, side:THREE.DoubleSide, transparent:true, opacity:1});
+  const mesh = new THREE.Mesh(geo, mat); sc.add(mesh);
+  const IM = {gri:TRV.img(H.gri), relief:TRV.img(H.relief)}; ['SUPR_FT', 'SUPR_XTR_1'].forEach(k => IM[k] = TRV.img(H['dz_' + k]));
+  let texK = null;
+  function setTex(k){ if(texK === k) return; const top = IM[k]; if(!IM.gri.complete || !IM.relief.complete || (top && !top.complete)) return;
+    c2.clearRect(0, 0, cv.width, cv.height); c2.drawImage(top ? IM.gri : IM.relief, 0, 0); if(top) c2.drawImage(top, 0, 0); tex.needsUpdate = true; texK = k; }
+  // ---- retea TIN (vizual, la 8 m) si punctele topo
+  const wp = [], s3 = 4, zg = (i, j) => base[j*nx + i];
+  for(let j=0;j<ny-s3;j+=s3) for(let i=0;i<nx-s3;i+=s3){ const a = zg(i, j), b = zg(i + s3, j), c = zg(i, j + s3); if(isNaN(a + b + c)) continue;
+    const pa = P(0.5 + i*F, 0.5 + j*F, a + 0.1), pb = P(0.5 + (i + s3)*F, 0.5 + j*F, b + 0.1), pc = P(0.5 + i*F, 0.5 + (j + s3)*F, c + 0.1);
+    wp.push(pa.x, pa.y, pa.z, pb.x, pb.y, pb.z, pa.x, pa.y, pa.z, pc.x, pc.y, pc.z, pb.x, pb.y, pb.z, pc.x, pc.y, pc.z); }
+  const wg = new THREE.BufferGeometry(); wg.setAttribute('position', new THREE.Float32BufferAttribute(wp, 3));
   const wire = new THREE.LineSegments(wg, new THREE.LineBasicMaterial({color:0x3fd0ff, transparent:true, opacity:0})); sc.add(wire);
-  // punctele topo reale (esantion de 30.000)
   const pq = TRV.b64u16(T.pts), np = T.npts, ppos = new Float32Array(np*3), pz = new Float32Array(np), pdel = new Float32Array(np), pcol = new Float32Array(np*3);
-  for(let k=0;k<np;k++){ const x = pq[3*k]/10, y = pq[3*k + 1]/10, z = T.zmin + pq[3*k + 2]/100, p = P(x, y, z); ppos.set([p.x, p.y, p.z], 3*k); pz[k] = p.y; pdel[k] = Math.random(); pcol.set(hyp(z).map(v => Math.min(1, v*1.5)), 3*k); }
+  for(let k=0;k<np;k++){ const p = P(pq[3*k]/10, pq[3*k + 1]/10, T.zmin + pq[3*k + 2]/100); ppos.set([p.x, p.y, p.z], 3*k); pz[k] = p.y; pdel[k] = Math.random();
+    const f = pq[3*k + 2]/100/(H.zmax - H.zmin + 0.01); pcol.set([0.45 + 0.5*f, 0.75 - 0.2*f, 0.9 - 0.5*f], 3*k); }
   const pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.BufferAttribute(ppos, 3)); pg.setAttribute('color', new THREE.BufferAttribute(pcol, 3));
-  const pts = new THREE.Points(pg, new THREE.PointsMaterial({size:2.2, vertexColors:true, transparent:true, opacity:1})); sc.add(pts);
-
-  // ---- zone si camera
-  const Z = H.zone, zb = document.getElementById('zb');
-  const zc = z => { const cxw = (z.x0 + z.x1)/2, cyw = (z.y0 + z.y1)/2, r = Math.max(z.x1 - z.x0, z.y1 - z.y0); return {t:P(cxw, cyw, zmid), r}; };
-  const all = {t:P(W/2, HH/2, zmid), r:Math.max(W, HH)*0.95};
-  const camFor = v => v.t.clone().add(new THREE.Vector3(-0.35*v.r, 0.75*v.r, 0.75*v.r));
-  const ZI = Math.min(1, Z.length - 1);
-  document.getElementById('npt').textContent = TRV.nf(REZ.n_puncte_eg);
-  let manual = false, view = zc(Z[ZI]), viewA = null, tv = 0;
-  const fly = v => { viewA = {p:cam.position.clone(), t:ctr.target.clone()}; view = v; tv = performance.now(); manual = true; };
-  zb.innerHTML = Z.map((z, k) => `<button data-z="${k}">${z.nume} · ${TRV.nf(z.arie/1e4, 1)} ha</button>`).join('') + `<button data-z="-1">Tot situl</button>`;
-  zb.querySelectorAll('button').forEach(b => b.onclick = () => fly(+b.dataset.z < 0 ? all : zc(Z[+b.dataset.z])));
-  ren.domElement.addEventListener('pointerdown', () => { manual = true; viewA = null; });
-
-  let layer = 'relief', lockLayer = false;
-  document.querySelectorAll('#opts [data-l]').forEach(b => b.onclick = () => { layer = b.dataset.l; lockLayer = true; });
-  const leg = document.getElementById('leg');
-  function legenda(l){
-    if(l === 'relief') return `<h4>Altitudine</h4><div style="height:14px;border-radius:4px;background:linear-gradient(90deg,rgb(40,92,120),rgb(70,120,92),rgb(150,150,90),rgb(165,120,80),rgb(205,190,175))"></div>
-      <div style="display:flex;justify-content:space-between"><span>${TRV.nf(H.zmin, 1)} m</span><span>${TRV.nf(H.zmax, 1)} m</span></div>`;
-    const r = window.REZ ? REZ.rezultate[l] : null;
-    const lab = ['săpătură > 0,50', '0,30–0,50', '0,15–0,30', '0,05–0,15', '', 'umplutură 0,05–0,15', '0,15–0,30', '0,30–0,50', '> 0,50 m'];
-    return `<h4>${TRV.SCN[l].n}</h4>` + H.clr.map((c, k) => k === 4 ? '' : `<div><span class="key" style="background:${c}"></span>${lab[k]}</div>`).join('') +
-      `<div><span class="key" style="background:rgba(91,227,154,.6)"></span>masă fără lucrări (în bandă)</div>` +
-      (r ? `<div style="margin-top:8px;color:var(--gold)">Săpătură ${TRV.nf(r.cut)} mc · umplutură ${TRV.nf(r.fill)} mc</div>` : '');
-  }
-  const T0 = [0, 7, 13, 19, 27, 35, 43], DUR = 52;
-  const clk = AnimUI.init({duration:DUR, loop:true, onSeek:() => { lockLayer = false; }, phases:[
-    {t:0, text:'Ridicarea topo din aprilie: <b>' + TRV.nf(REZ.n_puncte_eg) + ' de puncte</b> X, Y, Z (aici un eșantion de ' + TRV.nf(TEREN3D.npts) + '), mai dese pe liniile de ridicare.'},
-    {t:7, text:'Punctele se unesc în triunghiuri: <b>modelul TIN</b>. Fiecare triunghi este un plan — cota oricărui punct se interpolează liniar.'},
-    {t:13, text:'Din TIN se derivă o <b>grilă de 1 m</b> (' + TRV.nf(REZ.celule/1e6, 2) + ' mil. celule valide), traversată de talveguri.'},
-    {t:19, text:'<b>Proiectul inițial</b>: fiecare tracker drept, cu capetele puse pe teren. Pe mese apar săpături (roșu) și umpluturi (albastru).'},
-    {t:27, text:'<b>FT optimizat</b>: același tub drept, dar ridicat / coborât / înclinat optim — mult mai puțin pământ mutat.'},
-    {t:35, text:'<b>XTR 1°</b>: tubul se frânge la fiecare pilot cu cel mult 1° — urmărește terenul; aproape toate mesele rămân verzi.'},
-    {t:43, text:'Tot situl: ' + REZ.n_trackere + ' de trackere. Trageți cu mouse-ul pentru rotire, rotița pentru zoom.'}]});
+  const pts = new THREE.Points(pg, new THREE.PointsMaterial({size:1.6, vertexColors:true, transparent:true, opacity:1})); sc.add(pts);
+  // ---- trackere: tub la D + 1,5 m si masa de 2,38 m
+  const trkG = new THREE.Group(); sc.add(trkG);
+  const tubes = TRK.map(t => { const n = t.s.length, g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n*6), 3));
+    const l = new THREE.LineSegments(g, new THREE.LineBasicMaterial({color:0x3fd0ff})); trkG.add(l);
+    const tl = new THREE.Line(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(n*3), 3)), new THREE.LineBasicMaterial({color:0xe8eef8})); trkG.add(tl);
+    return {t, l, tl}; });
+  function setTubes(k){ const kk = k === 'SUPR_XTR_1' ? 'SUPR_XTR_1' : 'SUPR_FT';
+    tubes.forEach(({t, l, tl}) => { const a = l.geometry.attributes.position.array, b = tl.geometry.attributes.position.array, nx_ = -t.uy, ny_ = t.ux;
+      t.s.forEach((s, i) => { const z = t.zb + t.d[kk][i]/1000 + 1.5, x = t.x + t.ux*s, y = t.y + t.uy*s;
+        const p1 = P(x + nx_*1.19, y + ny_*1.19, z), p2 = P(x - nx_*1.19, y - ny_*1.19, z), pc = P(x, y, z);
+        a.set([p1.x, p1.y, p1.z, p2.x, p2.y, p2.z], 6*i); b.set([pc.x, pc.y, pc.z], 3*i); });
+      l.geometry.attributes.position.needsUpdate = true; tl.geometry.attributes.position.needsUpdate = true; }); }
+  const ZK = {EG:base.slice()}; ['SUPR_FT', 'SUPR_XTR_1'].forEach(k => { const o = new Float32Array(nx*ny); for(let q=0;q<nx*ny;q++) o[q] = base[q] + DZ[k][q]/100; ZK[k] = o; });
+  let zcur = base.slice(), fromZ = base.slice(), curK = null, tSw = 0, showT = true, manual = null;
+  function morph(k, f){ const B = ZK[k] || ZK.EG, p = geo.attributes.position.array;
+    for(let q=0;q<nx*ny;q++){ if(isNaN(base[q])) continue; zcur[q] = lerp(fromZ[q], B[q], f); p[3*q + 1] = (zcur[q] - zmid)*EX; }
+    geo.attributes.position.needsUpdate = true; if(f >= 1) geo.computeVertexNormals(); }
+  document.querySelectorAll('.opts [data-k]').forEach(b => b.onclick = () => { if(b.dataset.k === 'TRK'){ showT = !showT; b.textContent = (showT ? '☐' : '☒') + ' trackere'; return; } manual = b.dataset.k; clk.pause(); });
+  const leg = document.getElementById('leg'), lab = ['săpătură > 0,50 m', '0,30–0,50', '0,15–0,30', '0,05–0,15', '', 'umplutură 0,05–0,15', '0,15–0,30', '0,30–0,50', '> 0,50 m'];
+  const SEQ = ['PTS', 'TIN', 'EG', 'SUPR_FT', 'SUPR_XTR_1'], T0 = [0, 6, 11, 17, 26], DUR = 36;
+  const clk = AnimUI.init({duration:DUR, loop:true, onSeek:() => { manual = null; }, phases:[
+    {t:0, text:'Ridicarea topo: <b>' + nf(REZ.n_puncte_eg) + ' de puncte</b> X, Y, Z (aici un eșantion de ' + nf(T.npts) + '), mai dese pe liniile de ridicare.'},
+    {t:6, text:'Punctele se unesc în triunghiuri: <b>modelul TIN</b>. Fiecare triunghi e un plan — cota oricărui punct se interpolează liniar.'},
+    {t:11, text:'<b>Terenul existent (EG)</b>, cu trackerele așezate pe el — o zonă de ' + nf(REZ.arie_teren/1e4, 1) + ' ha traversată de un talveg.'},
+    {t:17, text:'<b>Suprafața de nivelare — FT</b>: tub drept; săpături pe coame, umpluturi în văi, racordate lin (≤ 1:10), fără bălți.'},
+    {t:26, text:'<b>Suprafața de nivelare — XTR 1°</b>: tubul urmărește terenul; rămân doar umplerile depresiunilor închise.'}]});
+  const cam0 = () => { const r = Math.max(Z.x1 - Z.x0, Z.y1 - Z.y0); return new THREE.Vector3(-0.25*r, 0.55*r, 0.6*r); };
+  cam.position.copy(cam0()); let man = false; ren.domElement.addEventListener('pointerdown', () => man = true);
   (function frame(){
-    const t = clk.update(), a = T0.reduce((acc, v, i) => t >= v ? i : acc, 0);
-    // stratul
-    if(!lockLayer) layer = a <= 2 ? 'relief' : a === 3 ? 'ORIG_APR' : a === 4 ? 'FT' : a === 5 ? 'XTR_1' : 'FT';
-    document.querySelectorAll('#opts [data-l]').forEach(b => b.classList.toggle('on', b.dataset.l === layer));
-    if(layer === 'relief'){ mesh.material = matH; } else { setTex(layer); mesh.material = texFor === layer ? matT : matH; }
-    leg.innerHTML = legenda(layer);
-    // punctele cad, apoi dispar; reteaua apare
-    const fall = seg(t, 0, 6, x => x), pa = pg.attributes.position.array;
-    for(let k=0;k<np;k++){ const f = AnimUI.clamp01((fall - pdel[k]*0.7)/0.3); pa[3*k + 1] = pz[k] + (1 - ease(f))*260; }
-    pg.attributes.position.needsUpdate = true;
-    pts.material.opacity = t < 7 ? 1 : 1 - seg(t, 8, 12); pts.visible = pts.material.opacity > 0.01 && t < 13;
-    wire.material.opacity = t < 7 ? 0 : t < 13 ? 0.55*seg(t, 7, 9) : 0.55*(1 - seg(t, 13, 15)); wire.visible = wire.material.opacity > 0.01;
-    matH.opacity = t < 13 && !lockLayer ? (t < 7 ? 0.0 : 0.25*seg(t, 9, 12)) + (t >= 12 ? seg(t, 12, 14) : 0) : 1;
-    matH.depthWrite = matH.opacity > 0.99; mesh.visible = matH.opacity > 0.01 || mesh.material === matT;
-    // camera automata
-    if(!manual){
-      const z2 = zc(Z[ZI]), z2n = {t:z2.t, r:z2.r*0.5}, tgt = a <= 2 ? z2 : a <= 5 ? z2n : all;
-      const p = camFor(tgt), k = 0.02; cam.position.lerp(p, k); ctr.target.lerp(tgt.t, k); cam.lookAt(ctr.target);
-    } else if(viewA){ const f = ease(Math.min(1, (performance.now() - tv)/1400)); cam.position.copy(viewA.p.clone().lerp(camFor(view), f)); ctr.target.copy(viewA.t.clone().lerp(view.t, f)); if(f >= 1) viewA = null; }
+    const t = clk.update(), a = T0.reduce((acc, v, i) => t >= v ? i : acc, 0), k = manual || SEQ[a];
+    const geomK = (k === 'SUPR_FT' || k === 'SUPR_XTR_1') ? k : 'EG';
+    if(geomK !== curK){ fromZ = zcur.slice(); curK = geomK; tSw = performance.now(); setTubes(geomK); }
+    const f = ease(Math.min(1, (performance.now() - tSw)/1500)); if(f < 1 || !frame.done){ morph(geomK, f); frame.done = f >= 1; }
+    setTex(geomK === 'EG' ? 'EG' : geomK);
+    // punctele cad, apoi reteaua, apoi suprafata
+    const isIntro = !manual ? a <= 1 : (k === 'PTS' || k === 'TIN');
+    const fall = manual === 'PTS' || manual === 'TIN' ? 1 : seg(t, 0, 5, x => x), pa = pg.attributes.position.array;
+    for(let q=0;q<np;q++){ const ff = AnimUI.clamp01((fall - pdel[q]*0.7)/0.3); pa[3*q + 1] = pz[q] + (1 - ease(ff))*200; } pg.attributes.position.needsUpdate = true;
+    pts.visible = k === 'PTS' || k === 'TIN' || (!manual && t < 11); pts.material.opacity = k === 'TIN' && manual ? 0.4 : (!manual ? 1 - 0.6*seg(t, 6, 10) : 1);
+    wire.visible = k === 'TIN' || (!manual && t >= 6 && t < 13); wire.material.opacity = manual ? 0.6 : 0.6*seg(t, 6, 8)*(1 - seg(t, 11, 13));
+    mesh.visible = !(k === 'PTS' || (k === 'TIN' && manual)) && !(!manual && t < 6); mat.opacity = !manual && t < 13 ? seg(t, 9, 12.5) : 1; mat.depthWrite = mat.opacity > 0.99;
+    trkG.visible = showT && !(k === 'PTS' || k === 'TIN');
+    document.querySelectorAll('.opts [data-k]').forEach(b => { if(b.dataset.k !== 'TRK') b.classList.toggle('on', b.dataset.k === k); });
+    const r = R[geomK];
+    leg.innerHTML = geomK === 'EG' ? `<h4>${k === 'PTS' ? 'Punctele topo' : k === 'TIN' ? 'Modelul TIN' : 'Teren existent'}</h4><div>altitudine ${nf(H.zmin, 1)}–${nf(H.zmax, 1)} m</div>` :
+      `<h4>${geomK === 'SUPR_FT' ? 'Suprafața de nivelare — FT' : 'Suprafața de nivelare — XTR 1°'}</h4>` + H.clr.map((c, q) => q === 4 ? '' : `<div><span class="key" style="background:${c}"></span>${lab[q]}</div>`).join('') +
+      `<div style="margin-top:8px;color:var(--gold)">săpătură ${nf(r.cut)} mc · umplutură ${nf(r.fill)} mc</div>`;
+    if(!man){ const ang = t*0.03, p0 = cam0(); cam.position.set(p0.x*Math.cos(ang) - p0.z*Math.sin(ang), p0.y, p0.x*Math.sin(ang) + p0.z*Math.cos(ang)); cam.lookAt(0, 0, 0); }
     ctr.update(); ren.render(sc, cam);
     requestAnimationFrame(frame);
   })();
-  { const v = zc(Z[ZI]); cam.position.copy(camFor(v)); ctr.target.copy(v.t); }
 })();
 </script>
 </body></html>

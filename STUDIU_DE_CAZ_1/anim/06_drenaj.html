@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Drenajul pe suprafața finală</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/anim-ui.js"></script><script src="../lib/trv.js"></script>
+<script src="../data/harta.js"></script><script src="../data/teren3d.js"></script><script src="../data/drenaj.js"></script><script src="../data/rezultate.js"></script>
+<style>#zb button{padding:6px 12px}#cv{position:absolute;inset:0;width:100%;height:100%;cursor:grab}
+.inf{right:20px;bottom:150px;width:380px}.leg{left:20px;bottom:150px;width:330px}</style>
+</head><body>
+<canvas id="cv"></canvas>
+<div class="a-title">Drenajul pe suprafața de nivelare<small>bălți (depresiuni închise) · constrângerea „fără bălți” în optimizare · talveguri D8 · rigole · clic pe o rigolă = calculul ei</small></div>
+<div class="opts" id="opts">
+  <button data-l="ploaie">Ploaia — scurgerea pe teren</button><button data-l="ft">Bălțile terenului natural</button><button data-l="balti">După optimizare: fără bălți</button>
+  <button data-l="talveg">Talvegurile (bazin ≥ 0,1 ha)</button><button data-l="rigole">Rigolele propuse</button>
+  </div><div id="zb" style="position:absolute;left:28px;top:104px;display:flex;gap:8px;z-index:40"></div>
+<div class="a-panel leg" id="leg"></div><div class="a-panel inf" id="inf"></div>
+<script>
+(function(){
+  const {seg} = AnimUI, nf = TRV.nf, H = HARTA, DR = DRENAJ, T = TEREN3D, P = DR.par;
+  const cv = document.getElementById('cv');
+  const m = TRV.Map2D(cv, {W:H.nx*H.CELL, H:H.ny*H.CELL});
+  const L = {relief:{img:TRV.img(H.relief), on:true}, acc:{img:TRV.img(H.acumulare), on:false, alpha:0}, balti:{img:TRV.img(H.balti_SUPR_FT), on:false, alpha:0},
+    ft:{img:TRV.img(H.balti_EG), on:false, alpha:0}, mese:{img:TRV.img(H.dz_SUPR_FT), on:true, alpha:0.55}, cont:{img:TRV.img(H.contur), on:true}};
+  m.layers = [L.relief, L.mese, L.acc, L.balti, L.ft, L.cont];
+  const NAT = TRV.img(H.relief), SUPR = TRV.img(H.dz_SUPR_FT);
+  const zones = [Object.assign({nume:'Zona de lucru'}, H.zona)];
+  // ---- grila 4 m pentru particule
+  const z16 = TRV.b64u16(T.z), nx = T.nx, ny = T.ny, F = T.F;
+  const zg = (i, j) => { if(i < 0 || j < 0 || i >= nx || j >= ny) return NaN; const v = z16[j*nx + i]; return v === 65535 ? NaN : T.zmin + v/100; };
+  function grad(x, y){ const fi = x/F - 0.5, fj = y/F - 0.5, i = Math.floor(fi), j = Math.floor(fj), u = fi - i, v = fj - j;
+    const a = zg(i, j), b = zg(i + 1, j), c = zg(i, j + 1), d = zg(i + 1, j + 1); if(isNaN(a + b + c + d)) return null;
+    return [((b - a)*(1 - v) + (d - c)*v)/F, ((c - a)*(1 - u) + (d - b)*u)/F]; }
+  const NP = 2600, part = [];
+  function spawn(p, box){ for(let k=0;k<30;k++){ const x = box.x0 + Math.random()*(box.x1 - box.x0), y = box.y0 + Math.random()*(box.y1 - box.y0);
+      if(grad(x, y)){ p.x = x; p.y = y; p.life = 0; p.trail = [[x, y]]; p.stop = 0; return; } } p.life = -1; }
+  const ZI = 0; let box = zones[ZI]; const ALL = {x0:0, x1:H.nx*H.CELL, y0:0, y1:H.ny*H.CELL};
+  for(let k=0;k<NP;k++){ const p = {}; spawn(p, box); p.life = -Math.random()*60; part.push(p); }
+  function step(dt){
+    part.forEach(p => { p.life += dt*60; if(p.life < 0) return;
+      if(p.life > 220 || p.stop > 25){ spawn(p, box); return; }
+      const g = grad(p.x, p.y); if(!g){ spawn(p, box); return; }
+      const gn = Math.hypot(g[0], g[1]);
+      if(gn < 0.002){ p.stop++; return; }
+      const sp = Math.min(3.2, 0.9 + gn*40)*dt*60*0.35; p.x -= g[0]/gn*sp; p.y -= g[1]/gn*sp;
+      p.trail.push([p.x, p.y]); if(p.trail.length > 10) p.trail.shift(); });
+  }
+  // ---- vectori
+  const SEG = DR.seg.map(s => { const pts = []; for(let k=0;k<s.pts.length;k+=2) pts.push([s.pts[k], s.pts[k+1]]); return Object.assign({}, s, {P:pts}); });
+  const colH = H => H <= 0.4 ? '#7fd4ff' : H <= 0.5 ? '#ffc940' : '#ff9d3c';
+  let show = {ploaie:true, talveg:0, rigole:0}, sel = null;
+  m.vec.push((ctx, m) => {
+    if(show.ploaie){ ctx.lineWidth = 1.6; part.forEach(p => { if(p.life <= 0 || p.trail.length < 2) return; ctx.strokeStyle = p.stop > 3 ? 'rgba(63,160,255,.9)' : 'rgba(150,215,255,.75)';
+        ctx.beginPath(); p.trail.forEach((q, i) => { const [a, b] = m.toS(q[0], q[1]); i ? ctx.lineTo(a, b) : ctx.moveTo(a, b); }); ctx.stroke(); }); }
+    if(show.talveg > 0){ const amin = Math.exp(Math.log(26)*(1 - show.talveg) + Math.log(0.1)*show.talveg); SEG.forEach(s => { if(s.A < amin) return; ctx.strokeStyle = 'rgba(80,190,255,.95)'; ctx.lineWidth = Math.max(1, Math.min(6, 1 + Math.log10(s.A*10)*2.2));
+        ctx.beginPath(); s.P.forEach((q, i) => { const [a, b] = m.toS(...q); i ? ctx.lineTo(a, b) : ctx.moveTo(a, b); }); ctx.stroke(); }); }
+    if(show.rigole > 0){ const n = Math.floor(show.rigole*SEG.length);
+      SEG.slice(0, n).forEach(s => { if(!s.rig) return; ctx.strokeStyle = colH(s.H); ctx.lineWidth = s === sel ? 9 : 5; ctx.setLineDash(s.prot ? [10, 6] : []);
+        ctx.beginPath(); s.P.forEach((q, i) => { const [a, b] = m.toS(...q); i ? ctx.lineTo(a, b) : ctx.moveTo(a, b); }); ctx.stroke(); ctx.setLineDash([]);
+        if(s.prot){ const q = s.P[Math.floor(s.P.length/2)], [a, b] = m.toS(...q); ctx.fillStyle = '#ff6262'; ctx.beginPath(); ctx.arc(a, b, 5, 0, 7); ctx.fill(); } }); }
+    TRV.scaleBar(ctx, m, 40, 200);
+  });
+  m.onclick = (x, y) => { if(show.rigole < 1) return; let best = null, bd = 12/m.k;
+    SEG.forEach(s => { if(!s.rig) return; for(let i=1;i<s.P.length;i++){ const [x1, y1] = s.P[i-1], [x2, y2] = s.P[i], dx = x2 - x1, dy = y2 - y1, l2 = dx*dx + dy*dy || 1;
+      const u = Math.max(0, Math.min(1, ((x - x1)*dx + (y - y1)*dy)/l2)), d = Math.hypot(x - x1 - u*dx, y - y1 - u*dy); if(d < bd){ bd = d; best = s; } } });
+    sel = best; lock = true; clk.pause(); };
+  // ---- panouri
+  const RG = SEG.filter(s => s.rig), dep = DR.dep;
+  const totR = {n:RG.length, L:RG.reduce((a, s) => a + s.L, 0), V:RG.reduce((a, s) => a + s.vol, 0), Q:Math.max(...RG.map(s => s.Q)), pr:RG.filter(s => s.prot).length};
+  const inf = document.getElementById('inf'), leg = document.getElementById('leg');
+  function panou(){
+    if(sel){ const s = sel; inf.innerHTML = `<h4>Rigola ${s.id}</h4><table>
+      <tr><td>Bazin de recepție A</td><td>${nf(s.A, 2)} ha</td></tr><tr><td>Lungime segment</td><td>${nf(s.L, 1)} m</td></tr>
+      <tr><td>Panta rigolei S</td><td>${nf(s.S*100, 2)} %</td></tr><tr><td>Drum maxim de scurgere</td><td>${nf(s.Lmax)} m</td></tr>
+      <tr><td>tc = 10 + Kirpich</td><td>${nf(s.tc, 1)} min</td></tr><tr><td>i(tc), f = ${P.FREC}</td><td>${nf(s.i)} l/s·ha</td></tr>
+      <tr><td>Q = ${String(P.M_RET).replace('.', ',')} · ${String(P.PHI).replace('.', ',')} · i · A</td><td><b>${nf(s.Q)} l/s</b></td></tr>
+      <tr><td>h normal (Manning)</td><td>${nf(s.h*100)} cm</td></tr><tr><td>Viteza v</td><td style="color:${s.prot ? '#ff8a8a' : '#5be39a'}">${nf(s.v, 2)} m/s</td></tr>
+      <tr><td>Adâncime adoptată H</td><td><b>${nf(s.H, 2)} m</b></td></tr><tr><td>Lățime la coronament</td><td>${nf(s.B_sus, 2)} m</td></tr><tr><td>Volum săpătură</td><td>${nf(s.vol)} mc</td></tr></table>
+      <div style="margin-top:6px;color:${s.prot ? '#ff8a8a' : 'var(--muted)'}">${s.prot ? 'v > ' + String(P.V_ADM).replace('.', ',') + ' m/s → protecție (dale, pereu, trepte de disipare)' : 'v ≤ ' + String(P.V_ADM).replace('.', ',') + ' m/s → rigolă înierbată'}${s.pmin ? ' · panta terenului < 0,2 % → fundul se coboară la panta minimă' : ''}</div>`; return; }
+    const it = REZ.rezultate.SUPR_FT.iteratii;
+    inf.innerHTML = `<h4>Sinteza drenajului (zona de lucru)</h4><table>
+      <tr><td>Bălți — teren existent</td><td style="color:#ff8a8a">${dep.EG.n} · ${nf(dep.EG.arie)} mp · ${nf(dep.EG.vol)} mc</td></tr>
+      <tr><td>Bălți — după optimizare (FT)</td><td style="color:#5be39a">${dep.SUPR_FT.n} · ${nf(dep.SUPR_FT.arie)} mp</td></tr>
+      <tr><td>Rigole propuse</td><td>${totR.n} segmente · ${nf(totR.L)} m · ${nf(totR.V)} mc</td></tr><tr><td>Debit maxim</td><td>${nf(totR.Q)} l/s</td></tr></table>
+      <div style="margin-top:8px;color:var(--muted)">Constrângerea „fără bălți”, iterativ (FT): ${it.map(q => `it ${q.it}: ${q.balti} noduri`).slice(0, 4).join(' → ')} …</div>`;
+  }
+  leg.innerHTML = `<h4>Legendă</h4><div><span class="key" style="background:rgba(150,215,255,.9)"></span>picături care se scurg pe linia de cea mai mare pantă</div>
+    <div><span class="key" style="background:rgb(63,160,255)"></span>bălți (depresiuni închise > 5 cm)</div>
+    <div><span class="key" style="background:rgb(80,190,255)"></span>talveguri (grosimea ~ bazinul)</div>
+    <div><span class="key" style="background:#7fd4ff"></span>rigolă H = 0,40 m &nbsp;<span class="key" style="background:#ffc940"></span>0,45–0,50 &nbsp;<span class="key" style="background:#ff9d3c"></span>&gt; 0,50</div>
+    <div><span class="key" style="background:transparent;border:2px dashed #fff"></span>cu protecție (punct roșu)</div>`;
+  // ---- butoane
+  let lock = false, mode = 'ploaie';
+  const zb = document.getElementById('zb');
+  zb.innerHTML = zones.map((z, k) => `<button data-z="${k}">${z.nume}</button>`).join('') + '<button data-z="-1">Tot situl</button>';
+  zb.querySelectorAll('button').forEach(b => b.onclick = () => { lock = true; clk.pause(); const z = +b.dataset.z < 0 ? {x0:0, x1:H.nx*H.CELL, y0:0, y1:H.ny*H.CELL} : zones[+b.dataset.z];
+    box = z; part.forEach(p => spawn(p, box)); m.flyTo(z.x0, z.x1, z.y0, z.y1); });
+  document.querySelectorAll('#opts [data-l]').forEach(b => b.onclick = () => { mode = b.dataset.l; lock = true; clk.pause(); sel = null; });
+  const T0 = [0, 7, 13, 20, 30, 38], DUR = 46;
+  const clk = AnimUI.init({duration:DUR, loop:true, onSeek:() => { lock = false; sel = null; }, phases:[
+    {t:0, text:'Ploaie pe teren: fiecare picătură coboară pe <b>linia de cea mai mare pantă</b>.'},
+    {t:7, text:'Pe <b>terenul natural</b>, zona de lucru are ' + dep.EG.n + ' de depresiuni închise (' + nf(dep.EG.arie) + ' mp) — apa ar bălti între mese.'},
+    {t:13, text:'Direcțiile D8 însumate dau <b>acumularea</b>: talvegurile cu bazin ≥ 0,1 ha. Grosimea liniei crește cu suprafața bazinului.'},
+    {t:20, text:'<b>Rigole propuse</b> pe talvegurile care trec prin mese și au bazin ≥ 0,5 ha: ' + totR.n + ' segmente, ' + nf(totR.L) + ' m. Clic pe una = calculul ei.'},
+    {t:30, text:'<b>După optimizare</b>: fundul fiecărei depresiuni urcă până la nivelul de deversare — rămân ' + dep.SUPR_FT.n + ' bălți mici, ' + nf(dep.SUPR_FT.arie) + ' mp, pe marginea zonei.'},
+    {t:38, text:'Tot situl — drenajul se proiectează odată cu terasamentele, nu după ele.'}]});
+  let lastZ = null;
+  (function frame(){
+    const t = clk.update(), a = T0.reduce((acc, v, i) => t >= v ? i : acc, 0);
+    if(!lock){ mode = ['ploaie', 'ft', 'talveg', 'rigole', 'balti', 'rigole'][a];
+      const z = a === 5 ? ALL : zones[ZI];
+      if(lastZ !== z){ m.flyTo(z.x0, z.x1, z.y0, z.y1, 1.6); lastZ = z; if(z === zones[ZI]){ box = z; } } }
+    document.querySelectorAll('#opts [data-l]').forEach(b => b.classList.toggle('on', b.dataset.l === mode));
+    const lvl = {ploaie:0, ft:1, talveg:2, rigole:3, balti:4}[mode];
+    show.ploaie = lvl <= 1;
+    L.ft.on = lvl === 1; L.ft.alpha = lock ? 1 : (a === 1 ? seg(t, 7, 9) : 1); L.mese.img = lvl === 1 ? NAT : SUPR;
+    L.acc.on = lvl >= 2 && lvl !== 4; L.acc.alpha = lock ? 0.85 : 0.85*(a === 2 ? seg(t, 13, 15) : 1);
+    show.talveg = lvl === 2 ? (lock ? 1 : seg(t, 13.5, 19)) : lvl === 3 ? 1 : 0;
+    show.rigole = lvl === 3 ? (lock ? 1 : a === 3 ? seg(t, 20.5, 25, x => x) : 1) : 0;
+    L.balti.on = lvl === 4; L.balti.alpha = 1;
+    if(show.ploaie) step(clk.dt > 0 ? Math.min(0.05, clk.dt) : (lock ? 0.016 : 0));
+    panou(); m.draw();
+    requestAnimationFrame(frame);
+  })();
+})();
+</script>
+</body></html>
