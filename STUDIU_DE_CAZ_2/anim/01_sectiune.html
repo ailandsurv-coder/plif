@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Secțiune: fâșii față de suprafață</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/anim-ui.js"></script><script src="../lib/trv.js"></script><script src="../data/sectiuni.js"></script><script src="../data/harta.js"></script><script src="../data/rezultate.js"></script>
+<style>#sv{position:absolute;left:1%;top:150px;width:76%;height:calc(100% - 300px)}
+#ov{position:absolute;left:1%;top:96px;width:76%;height:50px}
+#pick{position:absolute;right:20px;top:330px;display:flex;flex-wrap:wrap;gap:6px;width:22%}
+#pick button{padding:6px 10px}
+#mini{position:absolute;right:20px;bottom:150px;width:22%;aspect-ratio:1.7;background:rgba(5,9,19,.6);border:1px solid var(--line);border-radius:10px}
+.inf{right:20px;top:380px;width:22%;font-size:15px}</style>
+</head><body>
+<div class="a-title">Secțiune transversală reală — fâșii separate față de suprafață continuă<small id="sub"></small></div>
+<svg id="ov" viewBox="0 0 1400 50" preserveAspectRatio="none"></svg>
+<div class="opts"><button data-k="EG">Teren existent</button><button data-k="FASII_FT">Fâșii separate — FT</button><button data-k="SUPR_FT">Suprafață continuă — FT</button><button data-k="SUPR_XTR_1">Suprafață continuă — XTR 1°</button></div>
+<div id="pick"></div>
+<svg id="sv" viewBox="0 0 1400 620" preserveAspectRatio="xMidYMid meet"></svg>
+<div class="a-panel inf" id="inf"></div>
+<canvas id="mini"></canvas>
+<script>
+(function(){
+  const {seg, ease, lerp} = AnimUI, nf = TRV.nf, TAU = 0.15, REV = 1.5, WM = 2.38, WIN = 70;
+  let si = 0, sec = SECT[0], manual = null, w0 = 0, wTarget = null;
+  const pick = document.getElementById('pick');
+  pick.innerHTML = SECT.map((s, k) => `<button data-i="${k}">S${k + 1}</button>`).join('');
+  pick.querySelectorAll('button').forEach(b => b.onclick = () => { setSec(+b.dataset.i); clk.seek(0); });
+  // fereastra initiala: portiunea cu cele mai multe trepte in varianta pe fasii
+  // metrica "trepte": suma salturilor de dz pe fasii (marginile meselor)
+  function stepsArr(s){ const z = s.z.FASII_FT, e = s.z.EG, near = new Uint8Array(z.length);
+    s.tr.forEach(c => { const a = Math.max(0, Math.round((c.t - 2)/s.step)), b = Math.min(z.length - 1, Math.round((c.t + 2)/s.step)); for(let i=a;i<=b;i++) near[i] = 1; });
+    return z.map((v, i) => i && near[i] ? Math.abs((v - e[i]) - (z[i-1] - e[i-1])) : 0); }
+  function bestWin(s){ const d = stepsArr(s), n = d.length, w = Math.round(WIN/s.step); let best = 0, bv = -1, acc = 0;
+    for(let i=0;i<n;i++){ acc += d[i]; if(i >= w) acc -= d[i - w]; if(i >= w - 1 && acc > bv){ bv = acc; best = i - w + 1; } }
+    s._score = bv; return best*s.step; }
+  function setSec(i){ si = i; sec = SECT[i]; w0 = bestWin(sec); pick.querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.i === i));
+    document.getElementById('sub').innerHTML = `Secțiunea S${i + 1} din ${SECT.length}, perpendiculară pe rânduri · ${nf(sec.L)} m · fereastra de ${WIN} m (trageți de bara de sus) · exagerare verticală ×<span id="ve"></span>`; }
+  SECT.forEach(x => bestWin(x)); setSec(SECT.reduce((b, x, i) => x._score > SECT[b]._score ? i : b, 0));
+  // mini-harta cu sectiunile
+  const mini = document.getElementById('mini'), mc = mini.getContext('2d'), rel = TRV.img(HARTA.relief);
+  function drawMini(){ const r = devicePixelRatio || 1; mini.width = mini.clientWidth*r; mini.height = mini.clientHeight*r; const W = mini.width, H = mini.height;
+    const Z = HARTA.zona, k = Math.min(W/(Z.x1 - Z.x0 + 40), H/(Z.y1 - Z.y0 + 40)), ox = W/2 - (Z.x0 + Z.x1)/2*k, oy = H/2 + (Z.y0 + Z.y1)/2*k;
+    mc.clearRect(0, 0, W, H); if(rel.complete) mc.drawImage(rel, ox, oy - HARTA.ny*k, HARTA.nx*k, HARTA.ny*k);
+    SECT.forEach((s, j) => { mc.strokeStyle = j === si ? '#ffc940' : 'rgba(255,255,255,.55)'; mc.lineWidth = (j === si ? 4 : 2)*r; mc.beginPath(); mc.moveTo(ox + s.x0*k, oy - s.y0*k); mc.lineTo(ox + s.x1*k, oy - s.y1*k); mc.stroke();
+      mc.fillStyle = mc.strokeStyle; mc.font = `${12*r}px Segoe UI`; mc.fillText('S' + (j + 1), ox + s.x0*k - 22*r, oy - s.y0*k + 4*r); }); }
+  // bara de ansamblu: trage fereastra
+  const ov = document.getElementById('ov'); let drag = false;
+  const setW = e => { const r = ov.getBoundingClientRect(); w0 = Math.max(0, Math.min(sec.L - WIN, (e.clientX - r.left)/r.width*sec.L - WIN/2)); clk.pause(); };
+  ov.addEventListener('pointerdown', e => { drag = true; ov.setPointerCapture(e.pointerId); setW(e); }); ov.addEventListener('pointermove', e => { if(drag) setW(e); }); ov.addEventListener('pointerup', () => drag = false);
+  document.querySelectorAll('.opts button').forEach(b => b.onclick = () => { manual = b.dataset.k; clk.pause(); });
+  const RAC = location.hash === '#racord';
+  const NUME = {EG:'Teren existent', FASII_FT:'Fâșii separate — FT', SUPR_FT:'Suprafață continuă — FT, racord 1:10', SUPR_XTR_1:'Suprafață continuă — XTR 1°',
+    SENS_FT_20:'Suprafață FT, racord 1:5 (20 %)', SENS_FT_05:'Suprafață FT, racord 1:20 (5 %)', SENS_XTR_20:'Suprafață XTR, racord 1:5', SENS_XTR_05:'Suprafață XTR, racord 1:20'};
+  const COL = {EG:'#c9a46a', FASII_FT:'#ffc940', SUPR_FT:'#ffc940', SUPR_XTR_1:'#5be39a', SENS_FT_20:'#ff9d3c', SENS_FT_05:'#b48cff', SENS_XTR_20:'#7fd4ff', SENS_XTR_05:'#b48cff'};
+  const SEQ = RAC ? ['FASII_FT', 'SENS_FT_20', 'SUPR_FT', 'SENS_FT_05'] : ['EG', 'FASII_FT', 'SUPR_FT', 'SUPR_XTR_1'], T0 = RAC ? [0, 7, 15, 23] : [0, 5, 15, 25], DUR = RAC ? 31 : 34;
+  if(RAC){ document.querySelector('.opts').innerHTML = SEQ.map(k => `<button data-k="${k}">${NUME[k]}</button>`).join('');
+    document.querySelector('.a-title').firstChild.textContent = 'Panta de racord — cât de lin se întind lucrările'; }
+  const PH = RAC ? [
+    {t:0, text:'<b>Fâșii separate</b> (racord „infinit”): treptele apar exact la marginea mesei.'},
+    {t:7, text:'<b>Racord 1:5</b> (20 %): lucrările se întind ~1–2 m de o parte și de alta — mai puțin pământ, dar taluzuri scurte.'},
+    {t:15, text:'<b>Racord 1:10</b> (10 %) — varianta adoptată: suprafață lină, ușor de executat cu lama și de întreținut.'},
+    {t:23, text:'<b>Racord 1:20</b> (5 %): aproape o platformă — suprafață foarte netedă, dar volumul crește.'}] : [
+    {t:0, text:'Secțiune reală, perpendiculară pe rânduri: <b>terenul existent</b> și trackerele care o traversează (pilot + masă de 2,38 m).'},
+    {t:5, text:'<b>Fâșii separate</b>: fiecare masă își are săpătura / umplutura ei, iar între rânduri terenul rămâne neatins → <b>șanțuri și trepte</b> la 4,7 m unul de altul.'},
+    {t:10, text:'În șanțuri apa se adună și curge de-a lungul rândului, pe lângă piloți: <b>eroziune, bălți, taluzuri verticale</b> pe care lama nu le poate executa.'},
+    {t:15, text:'<b>Suprafață continuă</b>: o singură suprafață pe toată zona, cu panta lucrărilor ≤ 1:10 — racordurile se întind pe mai mulți metri, fără trepte.'},
+    {t:25, text:'<b>XTR 1°</b> pe aceeași logică: tubul urmărește terenul, suprafața se atinge doar local.'}];
+  const clk = AnimUI.init({duration:DUR, loop:true, onSeek:() => { manual = null; }, phases:PH});
+  const inf = document.getElementById('inf');
+  let cur = null, from = null, tgt = null, tSw = 0;
+  function serie(k){ return sec.z[k].map(v => v/100 + sec.zb); }
+  (function frame(){
+    const t = clk.update(), a = T0.reduce((acc, v, i) => t >= v ? i : acc, 0), want = manual || SEQ[a];
+    const step = sec.step, n = sec.z.EG.length;
+    if(tgt !== want + si){ from = cur && cur.length === n ? cur : serie('EG'); tgt = want + si; tSw = performance.now(); frame.k = want; }
+    const f = ease(Math.min(1, (performance.now() - tSw)/1300)), B = serie(want); cur = from.map((v, i) => lerp(v, B[i], f));
+    document.querySelectorAll('.opts button').forEach(b => b.classList.toggle('on', b.dataset.k === want));
+    const EG = serie('EG');
+    // fereastra
+    const i0 = Math.max(0, Math.floor(w0/step)), i1 = Math.min(n - 1, i0 + Math.round(WIN/step));
+    const trs = sec.tr.filter(c => c.t >= w0 - 2 && c.t <= w0 + WIN + 2);
+    const dk = want === 'EG' || !(want in sec.tr[0].d) ? (want.indexOf('XTR') >= 0 ? 'SUPR_XTR_1' : want === 'EG' ? 'FASII_FT' : 'SUPR_FT') : want;
+    let lo = 1e9, hi = -1e9; for(let i=i0;i<=i1;i++){ lo = Math.min(lo, EG[i], B[i], cur[i]); hi = Math.max(hi, EG[i], B[i], cur[i]); }
+    trs.forEach(c => hi = Math.max(hi, c.d[dk] + sec.zb + REV + 0.3));
+    lo -= 0.3; const X = x => 60 + (x - w0)/WIN*1320, PXM = 1320/WIN, VE = Math.max(3, Math.min(12, 520/((hi - lo)*PXM))), Y = z => 560 - (z - lo)*PXM*VE;
+    document.getElementById('ve').textContent = Math.round(VE);
+    let h = '';
+    for(let z = Math.ceil(lo*2)/2; Y(z) > 20; z += 0.5) h += `<line x1="60" x2="1380" y1="${Y(z)}" y2="${Y(z)}" stroke="#1d2c4a"/><text x="52" y="${Y(z) + 5}" fill="#7f8fae" font-size="14" text-anchor="end">${z.toFixed(1)}</text>`;
+    for(let x = Math.ceil(w0/10)*10; x <= w0 + WIN; x += 10) h += `<text x="${X(x)}" y="590" fill="#7f8fae" font-size="14" text-anchor="middle">${x} m</text>`;
+    // pamant: umplutura intre EG si final
+    let pc = '', pf = '';
+    for(let i=i0;i<i1;i++){ const x0 = X(i*step), x1 = X((i + 1)*step) + 0.5, d = cur[i] - EG[i];
+      if(d < -0.01) pc += `<rect x="${x0}" y="${Y(EG[i])}" width="${x1 - x0}" height="${Y(cur[i]) - Y(EG[i])}"/>`;
+      else if(d > 0.01) pf += `<rect x="${x0}" y="${Y(cur[i])}" width="${x1 - x0}" height="${Y(EG[i]) - Y(cur[i])}"/>`; }
+    h += `<g fill="#ff6262" opacity=".75">${pc}</g><g fill="#4f9dff" opacity=".75">${pf}</g>`;
+    const path = arr => { let p = ''; for(let i=i0;i<=i1;i++) p += (i === i0 ? 'M' : 'L') + X(i*step).toFixed(1) + ' ' + Y(arr[i]).toFixed(1); return p; };
+    h += `<path d="${path(cur)} L ${X(i1*step)} 600 L ${X(i0*step)} 600 Z" fill="rgba(107,82,54,.55)"/>`;
+    h += `<path d="${path(EG)}" fill="none" stroke="#c9a46a" stroke-width="1.5" stroke-dasharray="5 4"/>`;
+    h += `<path d="${path(cur)}" fill="none" stroke="${COL[want]}" stroke-width="3"/>`;
+    // apa in santurile pe sectiune (umplere 1D)
+    let nTr = 0, stepMax = 0;
+    if(f > 0.95 && want === 'FASII_FT'){
+      // santuri locale: nivelul apei = min(max la stanga, max la dreapta) pe cel mult 4 m, doar unde s-a sapat
+      const K = Math.round(4/step); let wp = '';
+      for(let i=i0;i<i1;i++){ if(cur[i] > EG[i] - 0.02) continue; let l = -1e9, r = -1e9;
+        for(let q=Math.max(0, i - K); q<i; q++) l = Math.max(l, cur[q]); for(let q=i+1; q<=Math.min(n - 1, i + K); q++) r = Math.max(r, cur[q]);
+        const lev = Math.min(l, r); if(lev - cur[i] > 0.02) wp += `<rect x="${X(i*step)}" y="${Y(lev)}" width="${PXM*step + 0.5}" height="${Y(cur[i]) - Y(lev)}"/>`; }
+      h += `<g fill="rgba(63,160,255,.8)">${wp}</g>`;
+      for(let i=i0;i<i1;i++) stepMax = Math.max(stepMax, Math.abs(cur[i+1] - cur[i]));
+    }
+    // trackerele: pilot + masa
+    trs.forEach(c => { const D = c.d[dk] + sec.zb, x = X(c.t), top = Y(D + REV), gi = Math.round(c.t/step), g = cur[Math.max(0, Math.min(n - 1, gi))];
+      const out = Math.abs(g - D) > TAU + 0.02;
+      h += `<line x1="${x}" x2="${x}" y1="${top}" y2="${Y(g)}" stroke="${out ? '#ff9d3c' : '#e8eef8'}" stroke-width="3"/>`;
+      h += `<line x1="${x - WM/2*PXM}" x2="${x + WM/2*PXM}" y1="${top - 4}" y2="${top + 4}" stroke="#3fd0ff" stroke-width="6" stroke-linecap="round"/>`;
+      h += `<line x1="${x - 7}" x2="${x + 7}" y1="${Y(D + TAU)}" y2="${Y(D + TAU)}" stroke="#5be39a" stroke-width="2"/><line x1="${x - 7}" x2="${x + 7}" y1="${Y(D - TAU)}" y2="${Y(D - TAU)}" stroke="#5be39a" stroke-width="2"/>`; });
+    document.getElementById('sv').innerHTML = h;
+    // ansamblu
+    let o = ''; const zz = EG, zl = Math.min(...zz), zh = Math.max(...zz);
+    o += `<path d="${zz.map((v, i) => (i % 8 ? '' : (i ? 'L' : 'M') + (i/(n - 1)*1400).toFixed(1) + ' ' + (46 - (v - zl)/(zh - zl + 0.01)*40).toFixed(1))).join(' ')}" fill="none" stroke="#c9a46a" stroke-width="2"/>`;
+    o += `<rect x="${w0/sec.L*1400}" y="1" width="${WIN/sec.L*1400}" height="48" fill="rgba(255,201,64,.18)" stroke="#ffc940"/>`;
+    ov.innerHTML = o;
+    // panou
+    let vc = 0, vf = 0; for(let i=0;i<n;i++){ const d = B[i] - EG[i]; if(d < 0) vc -= d*step; else vf += d*step; }
+    const sv = REZ.sensibilitate.find(q => (RAC || want.indexOf('SENS') >= 0) && q.struct === (want.indexOf('XTR') >= 0 ? 'XTR_1' : 'FT') && q.G === ({SENS_FT_20:0.2, SENS_XTR_20:0.2, SENS_FT_05:0.05, SENS_XTR_05:0.05, SUPR_FT:0.1, SUPR_XTR_1:0.1, FASII_FT:null}[want]));
+    inf.innerHTML = `<h4>${NUME[want]}</h4>${sv ? `<div style="color:var(--gold);margin-bottom:6px">Pe toată zona: ${nf(sv.cut + sv.fill)} mc</div>` : ''}
+      <table><tr><td>Săpătură pe secțiune</td><td>${nf(vc, 1)} m²</td></tr><tr><td>Umplutură pe secțiune</td><td>${nf(vf, 1)} m²</td></tr>
+      ${want === 'FASII_FT' && stepMax ? `<tr><td>Treaptă max. în fereastră</td><td style="color:#ff8a8a">${nf(stepMax*100)} cm / 25 cm</td></tr>` : ''}</table>
+      <div style="color:var(--muted);margin-top:6px">Verde = fereastra ±15 cm la fiecare pilot; pilot portocaliu = terenul iese din fereastră.</div>`;
+    if(!frame.m || frame.m !== si){ drawMini(); frame.m = si; }
+    requestAnimationFrame(frame);
+  })();
+  rel.onload = drawMini;
+})();
+</script>
+</body></html>

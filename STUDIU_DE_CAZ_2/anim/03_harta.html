@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Harta lucrărilor pe suprafață</title>
+<link rel="stylesheet" href="../lib/anim.css">
+<script src="../lib/anim-ui.js"></script><script src="../lib/trv.js"></script>
+<script src="../data/harta.js"></script><script src="../data/trackere.js"></script><script src="../data/sectiuni.js"></script><script src="../data/rezultate.js"></script>
+<style>#cv{position:absolute;inset:0;width:100%;height:100%;cursor:grab}
+.leg{left:20px;bottom:150px;width:290px;font-size:15px}.tot{left:20px;top:150px;width:470px}</style>
+</head><body>
+<canvas id="cv"></canvas>
+<div class="a-title">Harta lucrărilor — fâșii separate față de suprafață continuă<small>trageți = deplasare, rotița = zoom · liniile albe = secțiunile transversale · conturul albastru = zona de lucru (mese + 20 m)</small></div>
+<div class="opts" id="opts">
+  <button data-l="FASII_FT">Fâșii separate — FT</button><button data-l="SUPR_FT">Suprafață continuă — FT</button><button data-l="SUPR_XTR_1">Suprafață continuă — XTR 1°</button>
+  <button data-l="SWIPE">⇆ Comparator fâșii | suprafață</button></div>
+<div class="a-panel leg" id="leg"></div><div class="a-panel tot" id="tot"></div>
+<script>
+(function(){
+  const nf = TRV.nf, H = HARTA, R = REZ.rezultate;
+  const cv = document.getElementById('cv'), m = TRV.Map2D(cv, {W:H.nx*H.CELL, H:H.ny*H.CELL});
+  const IM = {gri:TRV.img(H.gri), contur:TRV.img(H.contur)}; ['FASII_FT', 'SUPR_FT', 'SUPR_XTR_1'].forEach(k => IM[k] = TRV.img(H['dz_' + k]));
+  m.layers = [{img:IM.gri, on:true}];
+  const Z = H.zona; m.fit(Z.x0, Z.x1, Z.y0, Z.y1);
+  let layer = 'FASII_FT', lock = false, swipe = 0.5, dragSw = false;
+  const drawImg = (img, x0, x1) => { const c = m.ctx; c.save(); c.beginPath(); c.rect(x0, 0, x1 - x0, cv.clientHeight); c.clip(); const [sx, sy] = m.toS(0, m.H); c.drawImage(img, sx, sy, m.W*m.k, m.H*m.k); c.restore(); };
+  m.vec.push((ctx, m) => {
+    if(layer === 'SWIPE'){ const xs = cv.clientWidth*swipe; drawImg(IM.FASII_FT, 0, xs); drawImg(IM.SUPR_FT, xs, cv.clientWidth);
+      ctx.fillStyle = '#fff'; ctx.fillRect(xs - 2, 0, 4, cv.clientHeight); ctx.font = '700 22px Segoe UI'; ctx.textAlign = 'right'; ctx.fillStyle = '#ffc940'; ctx.fillText('fâșii separate', xs - 14, 150);
+      ctx.textAlign = 'left'; ctx.fillStyle = '#5be39a'; ctx.fillText('suprafață continuă ⇢', xs + 14, 150); ctx.textAlign = 'start'; }
+    else drawImg(IM[layer], 0, cv.clientWidth);
+    drawImg(IM.contur, 0, cv.clientWidth);
+    SECT.forEach((s, i) => { const [a, b] = m.toS(s.x0, s.y0), [c, d] = m.toS(s.x1, s.y1); ctx.strokeStyle = 'rgba(255,255,255,.8)'; ctx.lineWidth = 1.5; ctx.setLineDash([8, 6]);
+      ctx.beginPath(); ctx.moveTo(a, b); ctx.lineTo(c, d); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle = '#fff'; ctx.font = '700 14px Segoe UI'; ctx.fillText('S' + (i + 1), a - 26, b + 5); });
+    if(m.k > 1.5){ ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 1;
+      TRK.forEach(t => { const nx = -t.uy, ny = t.ux, w = 1.19; ctx.beginPath(); [[t.x + nx*w, t.y + ny*w], [t.x + t.ux*t.L + nx*w, t.y + t.uy*t.L + ny*w], [t.x + t.ux*t.L - nx*w, t.y + t.uy*t.L - ny*w], [t.x - nx*w, t.y - ny*w]]
+        .forEach((p, i) => { const [a, b] = m.toS(...p); i ? ctx.lineTo(a, b) : ctx.moveTo(a, b); }); ctx.closePath(); ctx.stroke(); }); }
+    TRV.scaleBar(ctx, m, 40, cv.clientHeight - 470);
+  });
+  cv.addEventListener('pointerdown', e => { if(layer === 'SWIPE' && Math.abs(e.clientX - cv.clientWidth*swipe) < 30){ dragSw = true; m.fixed = true; } });
+  m.onmove = (x, y, e) => { if(dragSw) swipe = Math.max(0.05, Math.min(0.95, e.clientX/cv.clientWidth)); };
+  addEventListener('pointerup', () => { dragSw = false; m.fixed = false; });
+  document.querySelectorAll('#opts [data-l]').forEach(b => b.onclick = () => { layer = b.dataset.l; lock = true; clk.pause(); });
+  const lab = ['săpătură > 0,50 m', '0,30–0,50', '0,15–0,30', '0,05–0,15', '', 'umplutură 0,05–0,15', '0,15–0,30', '0,30–0,50', '> 0,50 m'];
+  document.getElementById('leg').innerHTML = '<h4>Corecția terenului dz</h4>' + H.clr.map((c, k) => k === 4 ? '' : `<div><span class="key" style="background:${c}"></span>${lab[k]}</div>`).join('') + '<div><span class="key" style="background:rgba(91,227,154,.6)"></span>masă fără lucrări</div>';
+  const rows = [['FASII_FT', 'Fâșii separate — FT'], ['FASII_XTR_1', 'Fâșii separate — XTR 1°'], ['SUPR_FT', 'Suprafață continuă — FT'], ['SUPR_XTR_1', 'Suprafață continuă — XTR 1°']];
+  const tot = document.getElementById('tot');
+  const T0 = [0, 8, 16, 24], DUR = 34;
+  const clk = AnimUI.init({duration:DUR, loop:true, onSeek:() => { lock = false; }, phases:[
+    {t:0, text:'<b>Fâșii separate</b>: lucrările sunt benzi înguste sub mese — volum mic, dar suprafața rezultată e „în dungi”.'},
+    {t:8, text:'<b>Suprafață continuă — FT</b>: aceleași zone, dar lucrările se întind și între rânduri, cu racord lin; bălțile din zonă sunt umplute.'},
+    {t:16, text:'<b>Suprafață continuă — XTR 1°</b>: rămân doar umplerile depresiunilor închise — tubul urmărește restul terenului.'},
+    {t:24, text:'Comparatorul: <b>fâșii în stânga, suprafață în dreapta</b> — trageți de linia albă.'}]});
+  (function frame(){
+    const t = clk.update(), a = T0.reduce((acc, v, i) => t >= v ? i : acc, 0);
+    if(!lock){ layer = ['FASII_FT', 'SUPR_FT', 'SUPR_XTR_1', 'SWIPE'][a]; if(a === 3) swipe = 0.5 + 0.2*Math.sin((t - 24)*0.9); }
+    document.querySelectorAll('#opts [data-l]').forEach(b => b.classList.toggle('on', b.dataset.l === layer));
+    tot.innerHTML = `<h4>Volume pe zonă (${TRK.length} trackere)</h4><table><tr><th></th><th>săp. mc</th><th>umpl. mc</th><th>total</th></tr>` +
+      rows.map(([k, l]) => `<tr style="${k === layer || (layer === 'SWIPE' && (k === 'FASII_FT' || k === 'SUPR_FT')) ? 'background:rgba(63,208,255,.15)' : ''}"><td>${l}</td><td>${nf(R[k].cut)}</td><td>${nf(R[k].fill)}</td><td><b>${nf(R[k].cut + R[k].fill)}</b></td></tr>`).join('') + '</table>';
+    m.draw(); requestAnimationFrame(frame);
+  })();
+})();
+</script>
+</body></html>
